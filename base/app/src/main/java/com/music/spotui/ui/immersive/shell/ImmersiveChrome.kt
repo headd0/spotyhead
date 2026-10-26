@@ -213,13 +213,20 @@ fun ImmersiveBottomChrome(
             val miniHeight = mini?.height ?: 0
             val height = max(max(tabHeight, pillPx), if (miniHeight > 0) tabHeight + gapPx + miniHeight else 0)
             layout(width, height) {
-                tab?.placeWithLayer(insetPx, height - tab.height) {
+                // At rest the bar is placed plainly, like the mini player: a glass inside a placement
+                // layer (even an identity one) is not sampled correctly. Only while it folds does it
+                // get the layer for its alpha and scale.
+                if (tab != null && p == 0f) {
+                    tab.place(insetPx, height - tab.height)
+                } else {
+                    tab?.placeWithLayer(insetPx, height - tab.height) {
                     val q = progress.value.coerceIn(0f, 1f)
                     alpha = 1f - q
                     // Shrinks into the pill's corner.
                     transformOrigin = TransformOrigin(0f, 1f)
                     scaleX = lerp(1f, pillPx / tab.width.coerceAtLeast(1).toFloat(), q)
                     scaleY = lerp(1f, pillPx / tab.height.coerceAtLeast(1).toFloat(), q)
+                }
                 }
                 pill?.placeWithLayer(insetPx, height - pill.height) {
                     val q = progress.value.coerceIn(0f, 1f)

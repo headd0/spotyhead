@@ -266,22 +266,60 @@ internal class PageBackdrop(private val page: LayerBackdrop) : Backdrop {
     ) {
         val source = page.layerCoordinates
         val attached = coordinates != null && source != null && source.isAttached && coordinates.isAttached &&
-            !source.isAncestorOf(coordinates)
+            !page.isInsideSource(coordinates)
         val sameWindow = attached && source!!.findRoot() === coordinates!!.findRoot()
-        // Another window (the sheet's dialog): the recorded layer is drawn at the surface's
+        // Another window (the sheet's dialog): each recorded layer is drawn at the surface's
         // position on the screen, which is what both windows share.
         val usable = attached && (sameWindow || Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+        report(usable, source, coordinates, attached, sameWindow, page)
         drawRect(if (usable) Immersive.Page else Immersive.GlassFill, topLeft = FAR_TOP_LEFT, size = FAR_SIZE)
         if (!usable) return
         if (sameWindow) {
             with(page) { drawBackdrop(density, coordinates, layerBlock) }
         } else {
-            val offset = coordinates!!.positionOnScreen() - source!!.positionOnScreen()
-            withTransform({ translate(-offset.x, -offset.y) }) { drawLayer(page.graphicsLayer) }
+            val surface = coordinates!!.positionOnScreen()
+            with(page) { drawSources { src -> surface - src.positionOnScreen() } }
         }
     }
 
+    /**
+     * One Logbook line per change of state (at most a handful per run): whether the shared page
+     * recording is attached and non-empty, which a diagnostic report then proves or disproves.
+     */
+    private fun report(
+        usable: Boolean,
+        source: LayoutCoordinates?,
+        coordinates: LayoutCoordinates?,
+        attached: Boolean,
+        sameWindow: Boolean,
+        page: LayerBackdrop,
+    ) {
+        val recorded = page.recordedSize()
+        val line = buildString {
+            append("glass: ")
+            append(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) "LENS" else "LIVE_BLUR")
+            if (recorded.width > 0 && recorded.height > 0) append(" backdrop recorded ${recorded.width}x${recorded.height}")
+            else append(" backdrop empty (0x0)")
+            append(if (usable) ", sampled" else ", NOT sampled")
+            if (coordinates != null && coordinates.isAttached) append(" for a ${coordinates.size.width}x${coordinates.size.height} surface")
+            if (!usable) {
+                append(" [page coordinates ").append(if (source == null) "null" else if (source.isAttached) "attached" else "detached")
+                append(", surface ").append(if (coordinates == null) "null" else if (coordinates.isAttached) "attached" else "detached")
+                append(", same window ").append(sameWindow)
+                append(", surface inside page ").append(attached.not() && coordinates != null && page.isInsideSource(coordinates))
+                append("]")
+            }
+        }
+        if (line == lastReport || reports >= 14) return
+        lastReport = line
+        reports++
+        app.myspoti.host.android.Logbook.log(line)
+    }
+
     private companion object {
+        @Volatile var lastReport: String? = null
+        @Volatile var reports = 0
+
         // Past every edge, whatever the scale and padding of the recording.
         val FAR_TOP_LEFT = Offset(-20_000f, -20_000f)
         val FAR_SIZE = Size(40_000f, 40_000f)

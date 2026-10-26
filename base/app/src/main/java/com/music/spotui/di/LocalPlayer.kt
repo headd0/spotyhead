@@ -45,11 +45,25 @@ object LocalPlayer {
     private var exo: ExoPlayer? = null
     private val errors = StreamErrors()
 
+    private val audioAttributes = AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build()
+
+    /**
+     * An extension mirrors the song in the Web Player, unheard: that page asks Android for the audio
+     * focus too, and took it from this player (it paused 3 s into every mirror, which ended the
+     * mirror). While the mirror lasts this player keeps playing whoever asks; calls and other apps
+     * pause it again when it ends.
+     */
+    @Volatile private var mirrorActive = false
+    fun setMirrorFocus(on: Boolean) {
+        mirrorActive = on
+        android.os.Handler(android.os.Looper.getMainLooper()).post { exo?.setAudioAttributes(audioAttributes, !on) }
+    }
+
     @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
     private fun build(main: Boolean): ExoPlayer = ExoPlayer.Builder(Graph.app)
         // The fading-out copy of a crossfade owns neither the audio focus nor the noisy-audio pause:
         // the main player has them and the fade follows its play state.
-        .setAudioAttributes(AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MUSIC).build(), main)
+        .setAudioAttributes(audioAttributes, main && !mirrorActive)
         .setHandleAudioBecomingNoisy(main)
         // Downloaded songs are encrypted files: the player reads them through the decrypting source.
         .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(

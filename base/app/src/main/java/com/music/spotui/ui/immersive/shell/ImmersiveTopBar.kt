@@ -44,6 +44,7 @@ import com.music.spotui.ui.look.rememberReduceMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -152,30 +153,8 @@ fun ImmersiveTopBar(
     val page = LocalImmersiveBackdrop.current
     val controlSize = rememberBarControlSize()
     Box(modifier = modifier.fillMaxWidth()) {
-        // The frosted strip and its hairline, fading in with the collapse. Behind everything else.
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .graphicsLayer { alpha = collapse() }
-                .then(
-                    when {
-                        // Liquid Glass: the same blur, from the page the glass records (no lens on a strip).
-                        page != null && hazeState != null && hazeState === LocalImmersiveHaze.current ->
-                            Modifier.immersiveLiquidGlass(RectangleShape, page, tint = Immersive.Page.copy(alpha = 0.55f), lens = false, rim = false)
-                        hazeState != null -> Modifier.immersiveFrost(hazeState, tint = Immersive.Page.copy(alpha = 0.55f))
-                        else -> Modifier.background(Immersive.Page.copy(alpha = 0.94f))
-                    },
-                ),
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(0.5.dp)
-                .graphicsLayer { alpha = collapse() }
-                .background(Immersive.Separator),
-        )
-
+        // The glass panel hanging from the top (rounded bottom corners), fading in with the collapse.
+        ImmersiveTopGlass(collapse, Modifier.matchParentSize(), hazeState)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -375,8 +354,48 @@ fun LazyListScope.immersiveLargeTitle(
 /** The row of [ImmersiveFloatingHeader] under the status bar. */
 val ImmersiveHeaderContentHeight = 56.dp
 
-/** The rounded bottom corners of [ImmersiveFloatingHeader]. */
-private val HeaderCorner = 26.dp
+/** The rounded bottom corners of the top glass panel (the Immersive sheet radius). */
+private val HeaderCorner = 28.dp
+
+/** How far the glass panel extends above the screen, so only its bottom curve and rim are seen. */
+private val HeaderOverscan = 32.dp
+
+private val HeaderShape = RoundedCornerShape(bottomStart = HeaderCorner, bottomEnd = HeaderCorner)
+
+/**
+ * The glass panel of the top bar and the floating header: Liquid Glass (lens, live blur of the page
+ * scrolling under it, rim, tint) or the frost on Android < 13 / with the switch off, in a shape
+ * with rounded bottom corners and a square top. The panel is laid out [HeaderOverscan] taller than
+ * its slot and shifted above the screen, so its top edge, rim and top corners are never visible
+ * and the lens bends along the bottom curve only. It is a sibling of the page (never inside the
+ * recorded node), so it cannot sample itself. [visible] (0..1, read in the draw phase) fades it in
+ * as content scrolls under; with "reduce motion" it snaps instead.
+ */
+@Composable
+internal fun ImmersiveTopGlass(visible: () -> Float, modifier: Modifier, hazeState: HazeState?) {
+    val page = LocalImmersiveBackdrop.current
+    val reduce = rememberReduceMotion()
+    val overscan = with(LocalDensity.current) { HeaderOverscan.roundToPx() }
+    val shape = remember(overscan) { HeaderShape }
+    val glass = when {
+        page != null && hazeState != null && hazeState === LocalImmersiveHaze.current ->
+            Modifier.immersiveLiquidGlass(shape, page)
+        hazeState != null -> Modifier.clip(shape).immersiveFrost(hazeState, tint = Immersive.Page.copy(alpha = 0.55f))
+        else -> Modifier.background(Immersive.Page.copy(alpha = 0.94f), shape)
+    }
+    Box(
+        modifier
+            .layout { measurable, c ->
+                val p = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(c.maxWidth, c.maxHeight + overscan))
+                layout(c.maxWidth, c.maxHeight) { p.place(0, -overscan) }
+            }
+            .graphicsLayer {
+                val v = visible()
+                alpha = if (reduce) (if (v > 0.02f) 1f else 0f) else v
+            }
+            .then(glass),
+    )
+}
 
 /**
  * Where a page under [ImmersiveFloatingHeader] should start: just under the glass, with the gap
@@ -407,11 +426,12 @@ fun ImmersiveFloatingHeader(
     title: String,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = LocalImmersiveHaze.current,
+    collapse: () -> Float = { 1f },
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val controlSize = rememberBarControlSize()
-    val shape = remember { RoundedCornerShape(bottomStart = HeaderCorner, bottomEnd = HeaderCorner) }
-    Box(modifier.fillMaxWidth().immersiveGlassSurface(shape, hazeState)) {
+    Box(modifier.fillMaxWidth()) {
+        ImmersiveTopGlass(collapse, Modifier.matchParentSize(), hazeState)
         Row(
             modifier = Modifier
                 .fillMaxWidth()

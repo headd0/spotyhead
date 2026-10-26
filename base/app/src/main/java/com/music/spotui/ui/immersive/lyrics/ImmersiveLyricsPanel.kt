@@ -22,6 +22,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.interaction.DragInteraction
@@ -71,6 +73,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -117,7 +121,7 @@ import kotlin.math.abs
  * alpha carries the same hierarchy on older devices.
  *
  * Scrolling by hand clears the blur and suspends the auto-follow, so you can read ahead; a
- * moment after you stop it snaps back to the song. Tapping a line seeks to it.
+ * moment after you stop it snaps back to the song. Tapping a line seeks to it; holding one that Genius explains opens the note.
  *
  * The list brings its own side gutter and top margin; [contentPadding] is the extra room the
  * list keeps clear of whatever the player draws over it.
@@ -279,6 +283,25 @@ private fun LyricsList(
     val head = rememberLyricsPlayhead(trackKey, playing && isSynced)
     val clock = head.clock
 
+    // Genius's notes on the lines, read in the background when the song started (App.kt) and kept
+    // by track id; a line it explains is dotted and opens the note on a long press. Tap still seeks.
+    val trackId = SongPlayer.nowPlaying.value.uri.substringAfterLast(':')
+    val genTitle = Graph.currentSongState.title.value
+    val genArtist = Graph.currentSongState.singer.value
+    val genLang = com.music.spotui.ui.components.readerLanguage()
+    val meaning = com.music.spotui.data.api.GeniusMeaning.current.value?.takeIf { it.first == trackId }?.second
+    LaunchedEffect(trackId, genTitle, genArtist) {
+        if (meaning == null) com.music.spotui.data.api.GeniusMeaning.prefetch(trackId, genTitle, genArtist, genLang)
+    }
+    val notes = remember(rows, meaning) {
+        meaning?.let { com.music.spotui.ui.components.notesByLine(it, rows.map { r -> r.text }) }.orEmpty()
+    }
+    var noteOpen by remember(trackKey) { mutableStateOf<Int?>(null) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    noteOpen?.let { n ->
+        com.music.spotui.ui.immersive.sheets.ImmersiveMeaningSheet(trackId, genTitle, genArtist, n) { noteOpen = null }
+    }
+
     val activeRow by remember(rows, isSynced) {
         derivedStateOf { if (!isSynced) -1 else activeRow(rows, clock.longValue) }
     }
@@ -415,6 +438,13 @@ private fun LyricsList(
                 blurOk = blurOk,
                 glowing = blurOk,
                 clock = clock,
+                annotated = index in notes,
+                onHold = notes[index]?.let { n ->
+                    {
+                        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        noteOpen = n
+                    }
+                },
                 onSeek = { timeMs ->
                     head.announceJump()
                     SongPlayer.seekTo(timeMs)
@@ -427,6 +457,7 @@ private fun LyricsList(
 
 private const val BLUR_SWITCH_MS = 200
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PanelRow(
     index: Int,
@@ -440,6 +471,8 @@ private fun PanelRow(
     blurOk: Boolean,
     glowing: Boolean,
     clock: MutableLongState,
+    annotated: Boolean,
+    onHold: (() -> Unit)?,
     onSeek: (Long) -> Unit,
 ) {
     if (!synced && row.isGap) {
@@ -537,7 +570,21 @@ private fun PanelRow(
         }
         .blur(blur, BlurredEdgeTreatment.Unbounded)
         .clip(RoundedCornerShape(10.dp))
-        .clickable(enabled = synced, interactionSource = interaction, indication = null) { onSeek(row.timeMs) }
+        .then(if (annotated) Modifier.drawBehind {
+            // Genius explains this line: a faint dotted line under it, quiet beside the singing.
+            val y = size.height - GLOW_ROOM.toPx() + 2.dp.toPx()
+            drawLine(
+                color = Color.White.copy(alpha = 0.22f),
+                start = Offset(GLOW_ROOM.toPx(), y), end = Offset(size.width - GLOW_ROOM.toPx(), y),
+                strokeWidth = 1.5.dp.toPx(), cap = StrokeCap.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(0.1f, 5.dp.toPx())),
+            )
+        } else Modifier)
+        .combinedClickable(
+            enabled = synced || onHold != null, interactionSource = interaction, indication = null,
+            onLongClick = onHold,
+            onClick = { if (synced) onSeek(row.timeMs) },
+        )
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
         Column(modifier = shape) {

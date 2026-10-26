@@ -164,11 +164,14 @@ internal fun checkUrl(hook: String, url: String) {
     if (ExtensionRuntime.isPrivate(host)) throw ExtensionException("$hook: $host is a local address")
 }
 
-/** At most 20 headers, without the ones the app sets itself. */
+/** Headers an extension may not set on a media request (the app or the transport sets them). */
+private val MEDIA_FORBIDDEN_HEADERS = setOf("host", "content-length", "connection", "cookie", "set-cookie", "transfer-encoding", "proxy-authorization", "upgrade", "x-forwarded-for")
+
+/** At most 20 headers, without the ones the app sets itself, values of at most 2000 characters on one line. */
 internal fun headersOf(e: kotlinx.serialization.json.JsonElement?): Map<String, String> =
     (e as? JsonObject)?.entries?.take(20)?.associate { (k, v) ->
         k to ((v as? JsonPrimitive)?.contentOrNull ?: v.toString())
-    }?.filterKeys { it.lowercase() !in setOf("host", "content-length", "connection", "cookie") }.orEmpty()
+    }?.filter { (k, v) -> k.lowercase() !in MEDIA_FORBIDDEN_HEADERS && k.length <= 64 && v.length <= 2_000 && k.none { it.isISOControl() || it == ':' } && v.none { it == '\r' || it == '\n' } }.orEmpty()
 
 /**
  * What a `download-source` extension is asked: the song, and the quality the user wants

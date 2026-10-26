@@ -208,4 +208,9 @@
     <string name="ext_grants_title">始终允许</string>
     <string name="ext_grants_note">此扩展无需询问即可对 Spotify 进行的更改。撤销某项后将重新询问。</string>
     <string name="ext_grant_revoke">撤销</string>
+    <string name="extensions_unreadable_file">无法读取该文件</string>
+    <string name="ext_welcome_title">已安装 %1$s</string>
+    <string name="ext_welcome_steps">最后一步</string>
+    <string name="ext_welcome_from">由扩展编写。</string>
+    <string name="ext_welcome_ok">知道了</string>
 </resources>

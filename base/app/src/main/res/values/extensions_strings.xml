@@ -18,6 +18,7 @@
     <string name="extensions_cancel">Cancel</string>
     <string name="extensions_loading">Reading…</string>
     <string name="extensions_error">Not installed: %1$s</string>
+    <string name="extensions_unreadable_file">The file could not be read</string>
     <string name="extensions_prompt_title_install">Install %1$s?</string>
     <string name="extensions_prompt_title_update">Update %1$s?</string>
     <string name="extensions_prompt_by">%1$s · version %2$s · %3$s</string>

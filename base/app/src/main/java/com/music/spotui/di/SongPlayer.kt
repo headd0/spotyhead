@@ -256,6 +256,13 @@ object SongPlayer {
         override fun playFromSearch(query: String) { scope.launch { AutoBrowser.playFromSearch(query) } }
         override fun setRemoteVolume(volume: Int) = SongPlayer.setRemoteVolume(volume)
         override fun setShuffle(on: Boolean) = SongPlayer.setShuffle(on)
+        override val isEpisode: Boolean get() = SongPlayer.isEpisode
+        override fun skipBy(deltaMs: Long) {
+            // Past the end of the episode a +15 s is the normal end: on to the next item.
+            val duration = getDuration()
+            if (deltaMs > 0 && duration > 0 && getCurrentPosition() + deltaMs >= duration) SongPlayer.next(by = "media session")
+            else SongPlayer.skipBy(deltaMs)
+        }
     }
 
     // ── Last track: shown at launch (mini player) before the Web Player reports ──
@@ -404,6 +411,7 @@ object SongPlayer {
             buffering = isBuffering && !ad,
             liked = !ad && liked,
             shuffle = st?.shuffle?.value == true,
+            episode = !ad && isEpisode,
         ))
         com.music.spotui.widget.NowPlayingWidget.show(Graph.app,
             title = title,
@@ -545,7 +553,14 @@ object SongPlayer {
     }
 
     /** Back from the local player: the page is heard again if an extension's mirror had muted it. */
-    fun unmuteMirror() { if (api.player.localMute) command { api.player.setLocalMute(false) } }
+    fun unmuteMirror() { com.music.spotui.extensions.Extensions.mirrorReset("the local player stopped"); unmuteMirrorNow() }
+
+    fun unmuteMirrorNow() { if (api.player.localMute) command { api.player.setLocalMute(false) } }
+
+    /** The local player's state for the mirror guard: playing, track uri, duration. */
+    fun localSnapshot3(): Triple<Boolean, String?, Long> =
+        Triple(LocalPlayer.active.value && playing, _nowPlaying.value.uri.takeIf { LocalPlayer.active.value }, durationMs)
+    fun localSnapshot(): Pair<Boolean, String?> = localSnapshot3().let { it.first to it.second }
 
     /** Back from the local player: the Spotify queue again. */
     fun restoreEngineQueue() = main.post { _queue.value = EngineQueue(); applyQueue(apiQueue) }
@@ -1954,6 +1969,7 @@ object SongPlayer {
             }
             pushNotification(song.copy(coverUri = cover), liked)
             if (songChanged) refreshCurrentLiked()
+            com.music.spotui.extensions.Extensions.mirrorTick(isPlaying, uri)
             val source = if (t.uri.scheme == "file") com.music.spotui.data.local.ListenHistory.Source.DOWNLOAD
                 else com.music.spotui.data.local.ListenHistory.Source.LOCAL
             trackListen("local:${t.id}", song, source, isPlaying)

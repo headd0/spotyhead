@@ -2,6 +2,17 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
+## 2.0.2-beta.8
+
+- 🎚️ **Source order** (Settings, Playback and Downloads): put your audio and download sources in the order you want; each song is asked from top to bottom. Spotify has its own place too, first if you like. Each source shows only what matters, details on a tap. Installing a second source no longer clashes with the first.
+- 🔄 **Updates**: a Check now button in Settings, About, and the app looks more often (at most once an hour, again 10 min after a failed check).
+- 💎 **Liquid Glass** on the top bar of every tab, with a rounded bottom; the blur follows tab changes live. Fixes going back from a playlist that stayed on the playlist.
+- ↕️ **Immersive queue**: a dropped song goes straight to its place, without jumping back first.
+- 🎙️ **Podcasts**: the headphone next and previous buttons skip 15 s forward and back (Settings, Playback).
+- 📖 **Genius** song meanings in the Immersive look.
+- 🔒 **Safer extensions**: network calls limited to public hosts, an update that asks for more needs your OK, Spotify writes granted one by one, an extension crash no longer takes the app down.
+- 🌍 More texts translated.
+
 ## 2.0.2-beta.7
 
 - 💎 **Real Liquid Glass** (Immersive): lens refraction, specular rim and a live blur of what scrolls behind, now also on phones with system window blurs off (Android 13+; live blur on Android 12). Softer springs and press feedback across the look.

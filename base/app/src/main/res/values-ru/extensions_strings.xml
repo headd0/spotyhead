@@ -208,4 +208,9 @@
     <string name="ext_grants_title">Всегда разрешено</string>
     <string name="ext_grants_note">Изменения в Spotify, которые это расширение вносит без запроса. Отзовите одно, чтобы вас снова спрашивали.</string>
     <string name="ext_grant_revoke">Отозвать</string>
+    <string name="extensions_unreadable_file">Не удалось прочитать файл</string>
+    <string name="ext_welcome_title">Расширение «%1$s» установлено</string>
+    <string name="ext_welcome_steps">Чтобы завершить</string>
+    <string name="ext_welcome_from">Текст написан расширением.</string>
+    <string name="ext_welcome_ok">Понятно</string>
 </resources>

@@ -208,4 +208,9 @@
     <string name="ext_grants_title">Zawsze dozwolone</string>
     <string name="ext_grants_note">Zmiany w Spotify, które to rozszerzenie wykonuje bez pytania. Cofnij jedną, by znów być pytanym.</string>
     <string name="ext_grant_revoke">Cofnij</string>
+    <string name="extensions_unreadable_file">Nie udało się odczytać pliku</string>
+    <string name="ext_welcome_title">Zainstalowano: %1$s</string>
+    <string name="ext_welcome_steps">Na koniec</string>
+    <string name="ext_welcome_from">Napisane przez rozszerzenie.</string>
+    <string name="ext_welcome_ok">Rozumiem</string>
 </resources>

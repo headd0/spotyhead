@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="action_playback_mirror">Mantém o Spotify a tocar em silêncio aqui; conta reproduções na sua conta</string>
+    <string name="mirror_indicator">Spotify espelhado por %1$s</string>
+</resources>

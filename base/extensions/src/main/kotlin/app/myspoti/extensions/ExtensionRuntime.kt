@@ -34,6 +34,12 @@ open class ExtensionException(message: String, cause: Throwable? = null) : Excep
 /** The script ran past its time limit (a slow phone, a cold start), as opposed to an error of its own. */
 class ExtensionTimeout(message: String, cause: Throwable? = null) : ExtensionException(message, cause)
 
+/**
+ * The script took the sandbox down (out of memory, a stack overflow, any other Error): the app
+ * turns the extension off with this reason and keeps running. Not a failure to retry.
+ */
+class ExtensionFault(message: String, cause: Throwable? = null) : ExtensionException(message, cause)
+
 /** The call never started: the extension was still busy with earlier ones. Not the extension's fault. */
 class ExtensionBusy(message: String) : ExtensionException(message)
 
@@ -89,6 +95,7 @@ class ExtensionRuntime(
     @Volatile private var deadline = Long.MAX_VALUE
     private val requestTimes = ArrayDeque<Long>()
     private val spotifyTimes = ArrayDeque<Long>()
+    private val notifyTimes = ArrayDeque<Long>()
     /** Time spent waiting for the user in the run on the thread now: it is not the script's time. */
     @Volatile private var activePause: Pause? = null
 
@@ -122,9 +129,49 @@ class ExtensionRuntime(
      * nothing while a protected surface is on screen.
      */
     fun call(hook: Hook, inputJson: String, timeoutMs: Long): String? {
+        faulted?.let { throw ExtensionFault("turned off: $it") }
         if (!provides(hook)) return null
         if (hook.drawn && guard.suspended) return null
-        return run(timeoutMs) { cx -> dispatch(cx, "hook", hook.key, inputJson) }
+        val out = run(timeoutMs) { cx -> dispatch(cx, "hook", hook.key, inputJson) }
+        if (out != null) checkMedia(hook, out)
+        return out
+    }
+
+    /** Set when the script crashed the sandbox ([ExtensionFault]): every later call is refused. */
+    @Volatile var faulted: String? = null
+        private set
+
+    /**
+     * The addresses a hook answers with must name hosts the extension declared: its `network`
+     * hosts and its `media` hosts (audio and download addresses of an extension without `media`
+     * keep the older rule: any public host). Images of blocks are always held to the list.
+     */
+    private fun checkMedia(hook: Hook, json: String) {
+        val images = hook.action in Action.BLOCKS
+        val sources = hook == Hook.AUDIO_SOURCE || hook == Hook.DOWNLOAD_SOURCE
+        if (!images && !sources) return
+        if (sources && manifest.media == null) return
+        val tree = runCatching { ExtJson.parseToJsonElement(json) }.getOrNull() ?: return
+        val allowed = manifest.hosts() + manifest.mediaHosts().orEmpty()
+        val any = Action.NETWORK_ANY in granted && "*" in manifest.hosts() && Action.NETWORK in declared
+        fun verify(url: String) {
+            val h = runCatching { URI(url).host?.lowercase() }.getOrNull() ?: return
+            if (any || allowed.any { it != "*" && hostMatches(it, h) }) return
+            fail("${hook.key}: $h is not one of the hosts this extension declared (network hosts, or media.hosts in the manifest)", null)
+        }
+        fun walk(e: kotlinx.serialization.json.JsonElement, key: String?) {
+            when (e) {
+                is JsonObject -> e.forEach { (k, v) -> if (k != "headers") walk(v, k) }
+                is JsonArray -> e.forEach { walk(it, key) }
+                is JsonPrimitive -> if (e.isString) when {
+                    key == "url" || key == "image" -> if (e.content.startsWith("http", ignoreCase = true)) verify(e.content)
+                    key == "manifest" && sources -> runCatching { String(java.util.Base64.getMimeDecoder().decode(e.content)) }.getOrNull()
+                        ?.takeIf { it.contains("<MPD") }
+                        ?.let { mpd -> Regex("(?:initialization|media)=\"([^\"]+)\"").findAll(mpd).forEach { verify(it.groupValues[1].replace("&amp;", "&")) } }
+                }
+            }
+        }
+        walk(tree, null)
     }
 
     private val listening: MutableSet<String> = java.util.concurrent.ConcurrentHashMap.newKeySet()
@@ -138,6 +185,7 @@ class ExtensionRuntime(
      * script's failure, nothing logged and no [lastError].
      */
     fun emit(event: String, inputJson: String, timeoutMs: Long = 3_000) {
+        if (faulted != null) return
         if (EVENTS[event]?.let(::has) != true) return
         runCatching { run(timeoutMs, quietWhileQueued = true) { cx -> dispatch(cx, "event", event, inputJson) } }
     }
@@ -169,6 +217,18 @@ class ExtensionRuntime(
             deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMs)
             try {
                 FACTORY.call { cx -> block(cx) }
+            } catch (e: TimeLimit) {
+                throw e
+            } catch (e: Error) {
+                // Out of memory, a stack overflow in the engine, anything else: the extension is
+                // put out of service, the app goes on.
+                throw ExtensionFault(
+                    when (e) {
+                        is OutOfMemoryError -> "ran out of memory"
+                        is StackOverflowError -> "overflowed the stack"
+                        else -> "crashed the sandbox (${e.javaClass.simpleName})"
+                    }, e,
+                )
             } finally {
                 deadline = Long.MAX_VALUE
                 activePause = null
@@ -200,6 +260,10 @@ class ExtensionRuntime(
             val c = e.cause
             when (c) {
                 is TimeLimit -> fail("took longer than $timeoutMs ms", c, timeout = true)
+                is ExtensionFault -> {
+                    faulted = c.message
+                    fail(c.message ?: "crashed", c, fault = true)
+                }
                 is RhinoException -> fail("${c.details()} (${c.sourceName()}:${c.lineNumber()})", c)
                 is ExtensionException -> fail(c.message ?: "failed", c)
                 else -> fail(c?.toString() ?: "failed", c)
@@ -216,11 +280,11 @@ class ExtensionRuntime(
         }
     }
 
-    private fun fail(message: String, cause: Throwable?, timeout: Boolean = false): Nothing {
+    private fun fail(message: String, cause: Throwable?, timeout: Boolean = false, fault: Boolean = false): Nothing {
         if (closed) throw ExtensionException("stopped", cause)
         lastError = message
-        host.log(id, "failed: $message")
-        throw if (timeout) ExtensionTimeout(message, cause) else ExtensionException(message, cause)
+        host.log(id, if (fault) "turned off: $message" else "failed: $message")
+        throw if (fault) ExtensionFault(message, cause) else if (timeout) ExtensionTimeout(message, cause) else ExtensionException(message, cause)
     }
 
     // ── What the script can ask of the app ──
@@ -231,7 +295,7 @@ class ExtensionRuntime(
             ScriptableObject.putProperty(o, name, LambdaFunction(s, name, length) { _, _, _, args -> fn(args) ?: Undefined.instance })
         fun str(args: Array<Any?>, i: Int): String = args.getOrNull(i)?.takeUnless { it is Undefined }?.let { Context.toString(it) }.orEmpty()
 
-        def("info", 0) { ExtJson.encodeToString(Info.serializer(), Info(manifest.id, manifest.name, manifest.version)) }
+        def("info", 0) { ExtJson.encodeToString(Info.serializer(), Info(manifest.id, manifest.name, manifest.version, has(Action.PLAYBACK_MIRROR))) }
         def("mayProvide", 1) { a ->
             val key = str(a, 0)
             val hook = Hook.of(key) ?: throw error("unknown hook \"$key\" (known: ${Hook.entries.joinToString { it.key }})")
@@ -275,7 +339,12 @@ class ExtensionRuntime(
             val arg = (a.getOrNull(1) as? Number)?.toLong()?.takeIf { it >= 0 }
             host.control(id, action, arg)
         }
-        def("notify", 1) { a -> need(Action.NOTIFY); host.notify(id, str(a, 0).take(200)); null }
+        def("notify", 1) { a ->
+            need(Action.NOTIFY)
+            // A few messages an hour: a toast is not a channel to nag the user with.
+            if (!allowRequest(notifyTimes, MAX_NOTIFY_PER_HOUR, 3_600_000L)) throw error("notify: at most $MAX_NOTIFY_PER_HOUR messages an hour")
+            host.notify(id, str(a, 0).take(200)); null
+        }
         def("refresh", 1) { a ->
             val surface = Surface.entries.firstOrNull { it.key == str(a, 0) || it.key.substringBefore('.') == str(a, 0) }
                 ?: throw error("ui.refresh: unknown place \"${str(a, 0)}\" (${Surface.entries.joinToString { it.key.substringBefore('.') }.split(", ").distinct().joinToString()})")
@@ -381,10 +450,10 @@ class ExtensionRuntime(
     }
 
     /** Counts one more call in [times], or false when [max] were made in the last minute. */
-    private fun allowRequest(times: ArrayDeque<Long> = requestTimes, max: Int = limits.requestsPerMinute): Boolean {
+    private fun allowRequest(times: ArrayDeque<Long> = requestTimes, max: Int = limits.requestsPerMinute, windowMs: Long = 60_000): Boolean {
         val now = System.currentTimeMillis()
         synchronized(times) {
-            while (times.isNotEmpty() && now - times.first() > 60_000) times.removeFirst()
+            while (times.isNotEmpty() && now - times.first() > windowMs) times.removeFirst()
             if (times.size >= max) return false
             times.addLast(now)
             return true
@@ -438,9 +507,12 @@ class ExtensionRuntime(
         if (method.key != RAW_REQUEST) return confirm(text)
         val verb = RawRequest.check(args.str(0, "method"), args.str(1, "url"))
         val url = args.str(1, "url")
-        if (RawRequest.covered(host.rawGrants(id), verb, url)) return true
-        val offer = RawRequest.offer(verb, url)
-        return paused { host.confirmWrite(id, text, offer) }.let { it == Consent.ONCE || it == Consent.ALWAYS }
+        val body = RawRequest.bodyText(args)
+        if (RawRequest.covered(host.rawGrants(id), verb, url, body)) return true
+        // Real operation shown; "always" only per distinct operation (none determinable: asked each time).
+        val shown = RawRequest.operationOf(body)?.let { "$text\nOperation: $it" } ?: text
+        val offer = RawRequest.offerFor(verb, url, body) ?: return confirm(shown)
+        return paused { host.confirmWrite(id, shown, offer) }.let { it == Consent.ONCE || it == Consent.ALWAYS }
     }
 
     /** Asks the user through the host; the wait is not the script's time. */
@@ -490,7 +562,7 @@ class ExtensionRuntime(
     }
 
     @kotlinx.serialization.Serializable
-    private data class Info(val id: String, val name: String, val version: String)
+    private data class Info(val id: String, val name: String, val version: String, val mirror: Boolean = false)
 
     /** Thrown inside the script's thread when its time is up; not catchable by the script. */
     private class TimeLimit : Error("time limit")
@@ -519,6 +591,7 @@ class ExtensionRuntime(
         private val METHOD_NAMES = MapSerializer(String.serializer(), ListSerializer(String.serializer()))
         private const val MAX_SPOTIFY_ARGS = 256 * 1024
         private const val MAX_PAGE_MESSAGE = 64 * 1024
+        const val MAX_NOTIFY_PER_HOUR = 5
         /** `http.all`: the most requests sent together. */
         const val MAX_PARALLEL = 4
         private val CONTROLS = setOf("play", "pause", "next", "previous", "seek")
@@ -555,15 +628,8 @@ class ExtensionRuntime(
             else -> host == pattern
         }
 
-        internal fun isPrivate(host: String): Boolean {
-            if (host == "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true
-            val v4 = host.split('.').mapNotNull { it.toIntOrNull() }.takeIf { it.size == 4 && host.count { c -> c == '.' } == 3 }
-            if (v4 != null) {
-                val (a, b) = v4
-                return a == 10 || a == 127 || a == 0 || (a == 172 && b in 16..31) || (a == 192 && b == 168) || (a == 169 && b == 254)
-            }
-            return host.startsWith("[") || host.contains(':')
-        }
+        /** Whether [host] is a local address in any spelling (see [SafeNet]); the real check is made again when connecting. */
+        internal fun isPrivate(host: String): Boolean = SafeNet.isPrivateHost(host)
     }
 
     init {

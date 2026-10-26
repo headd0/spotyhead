@@ -166,7 +166,7 @@ private fun ArtistLoading(navController: NavController, artistName: String, artH
             state = listState,
             userScrollEnabled = false,
             contentPadding = PaddingValues(bottom = Immersive.BottomChrome),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().immersiveHazeSource(),
         ) {
             item(key = "header") { ArtistNameHeader(name = artistName, artHeight = artHeight) }
             immersiveDetailSkeleton(isArtist = true)

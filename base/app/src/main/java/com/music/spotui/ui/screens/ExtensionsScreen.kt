@@ -371,7 +371,7 @@ private fun StoreRow(
                 VersionPill(e.version)
             }
             if (action == StoreAction.INCOMPATIBLE) Text(incompatibleLine(e), color = Warning, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            else Text(e.description.ifBlank { e.author }, color = AppMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            else Text(e.description.ifBlank { authorLine(e.author, e.repo) }, color = AppMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             incompatibleWith(e, registry)?.let { Text(it, color = Warning, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             if (e.repo != null) RatingLine(rating, hidden)
             ActionIcons(e.preview().asks())
@@ -423,7 +423,8 @@ private fun AreaSection(
                         color = if (active) AppAccent else AppMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (list.size >= 2) Row {
+            // Sources are ordered per action, in Settings (see the hint under them).
+            if (list.size >= 2 && area != Area.AUDIO) Row {
                 IconButton(onClick = { Extensions.movePriority(area, e.id, -1) }, enabled = i > 0, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.KeyboardArrowUp, stringResource(R.string.extensions_move_up), tint = if (i > 0) AppText else AppMuted.copy(alpha = 0.3f))
                 }
@@ -433,6 +434,8 @@ private fun AreaSection(
             }
         }
     }
+    if (area == Area.AUDIO && list.size >= 2) Text(stringResource(R.string.sources_order_hint), color = AppMuted, fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
     // Who did what here lately.
     val recent = remember(activity, area) { activity.filter { it.area == area }.takeLast(3).asReversed() }
     if (recent.isNotEmpty()) {
@@ -475,7 +478,7 @@ private fun InstalledRow(e: InstalledExtension, error: String?, status: app.mysp
             when {
                 state != null -> Text(state.first, color = state.second, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 !e.enabled -> Text(stringResource(R.string.extension_off), color = AppMuted, fontSize = 12.sp)
-                else -> Text(m?.description?.ifBlank { null } ?: e.author, color = AppMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                else -> Text(m?.description?.ifBlank { null } ?: authorLine(e.author, e.origin?.repo), color = AppMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             m?.let { ActionIcons(it.asks().filter { a -> a.key in e.granted }) }
             extra()

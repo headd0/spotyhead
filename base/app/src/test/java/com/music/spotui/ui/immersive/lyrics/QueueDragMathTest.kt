@@ -101,35 +101,91 @@ class QueueDragMathTest {
 
     // ── The Spotify queue's reports while a move is applied: stale, half-way, final ──
 
-    private fun pending(q: List<String>, n: List<String>) = QueueDragMath.Pending(q, n, q, n, "cur")
+    private val Match = QueueDragMath.Verdict.Matched
+    private val Keep = QueueDragMath.Verdict.Keep
+
+    /** "n1" dragged from the list into the queue between q0 and q1. */
+    private val q0 = listOf("q0", "q1")
+    private val n0 = listOf("n0", "n1", "n2")
+    private val place = QueueDragMath.Place(true, 1)
+    private fun move(dragged: String = "n1", q: List<String> = q0, n: List<String> = n0, p: QueueDragMath.Place = place, at: Long = 0L, prev: QueueDragMath.Pending<String>? = null): QueueDragMath.Pending<String> {
+        val (eq, en) = QueueDragMath.apply(q, n, dragged, p)
+        return QueueDragMath.Pending(eq, en, q, n, eq, en, dragged, "cur", at, prev)
+    }
+    private val finalQ = listOf("q0", "n1", "q1")
+    private val finalN = listOf("n0", "n2")
 
     @Test fun noReportBeforeTheFinalOneEndsThePendingOrder() {
-        // "n1" dragged from the list into the queue, between q0 and q1.
-        val q0 = listOf("q0", "q1"); val n0 = listOf("n0", "n1", "n2")
-        val (eq, en) = QueueDragMath.apply(q0, n0, "n1", QueueDragMath.Place(true, 1))
-        val p = pending(eq, en)
-        assertEquals(listOf("q0", "n1", "q1"), eq)
-        assertEquals(listOf("n0", "n2"), en)
-        val reports = listOf(
-            q0 to n0,                                  // stale: before the edit
-            q0 to listOf("n0", "n2"),                  // removed from the list, not yet queued
-            q0 + "n1" to listOf("n0", "n2"),           // queued at the end
-        )
-        for ((rq, rn) in reports) assertFalse("$rq $rn", p.over(rq, rn, "cur"))
-        assertTrue(p.over(eq, en, "cur"))              // final
-        assertEquals(eq, p.queued); assertEquals(en, p.next) // what is drawn all along
+        val p = move()
+        assertEquals(finalQ, p.queued); assertEquals(finalN, p.next)
+        assertEquals(Keep, p.report(q0, n0, "cur", 100))                          // stale
+        assertEquals(Keep, p.report(q0, listOf("n0", "n2"), "cur", 200))          // out of the list, not yet queued
+        assertEquals(Keep, p.report(q0, listOf("n0", "n2"), "cur", 300))          // the same again
+        assertEquals(Keep, p.report(q0 + "n1", listOf("n0", "n2"), "cur", 400))   // queued at the end
+        assertEquals(Match, p.report(finalQ, finalN, "cur", 500))
+    }
+
+    @Test fun aSlowFinalReportIsWaitedFor() {
+        val p = move()
+        // Reports of the old order keep coming for 9 s: the pending order is never dropped before the limit.
+        for (t in listOf(1_000L, 3_500L, 6_000L, 9_000L)) assertEquals(Keep, p.report(q0, n0, "cur", t))
+        assertEquals(null, p.expired(9_900))
+        assertEquals(Match, p.report(finalQ, finalN, "cur", 9_500))
+        // ...and a silent engine is let go only at the limit.
+        assertEquals("no final report in 10s", move().expired(10_000))
+    }
+
+    @Test fun aStaleReportAfterTheMatchIsIgnoredForAWhile() {
+        val p = move()
+        assertEquals(Match, p.report(finalQ, finalN, "cur", 500))
+        assertEquals(Keep, p.report(q0, n0, "cur", 700))                          // older state, arriving late
+        assertEquals(Keep, p.report(q0, listOf("n0", "n2"), "cur", 900))          // and a step of the move
+        assertEquals(Keep, p.report(finalQ, finalN, "cur", 1_000))
+        assertEquals("settled", p.expired(500 + QueueDragMath.GRACE_MS))
+        assertEquals(QueueDragMath.Verdict.Drop("settled"), p.report(finalQ, finalN, "cur", 500 + QueueDragMath.GRACE_MS))
+    }
+
+    @Test fun anotherOrderOrSongEndsIt() {
+        assertTrue(move().report(listOf("x"), listOf("y"), "cur", 10) is QueueDragMath.Verdict.Drop)
+        assertEquals(QueueDragMath.Verdict.Drop("another song plays"), move().report(q0, n0, "other", 10))
+        val p = move(); p.report(finalQ, finalN, "cur", 10)
+        assertTrue(p.report(listOf("q0"), listOf("n0", "n2"), "cur", 20) is QueueDragMath.Verdict.Drop) // changed after the match
     }
 
     @Test fun aSameSectionMoveEndsOnItsFinalReportOnly() {
-        val n0 = listOf("n0", "n1", "n2", "n3")
-        val (eq, en) = QueueDragMath.apply(emptyList(), n0, "n0", QueueDragMath.Place(false, 3))
-        val p = pending(eq, en)
-        assertEquals(listOf("n1", "n2", "n3", "n0"), en)
-        assertFalse(p.over(emptyList(), n0, "cur"))
-        assertTrue(p.over(eq, en, "cur"))
+        val n = listOf("n0", "n1", "n2", "n3")
+        val p = move("n0", emptyList(), n, QueueDragMath.Place(false, 3))
+        assertEquals(listOf("n1", "n2", "n3", "n0"), p.next)
+        assertEquals(Keep, p.report(emptyList(), n, "cur", 10))
+        assertEquals(Match, p.report(emptyList(), listOf("n1", "n2", "n3", "n0"), "cur", 20))
+    }
+
+    @Test fun quickDropsChainTheirReports() {
+        val first = move()
+        // A second drag, made before anything was reported: n2 into the queue, first.
+        val second = move("n2", finalQ, finalN, QueueDragMath.Place(true, 0), at = 300, prev = first.detach())
+        assertEquals(listOf("n2", "q0", "n1", "q1"), second.queued); assertEquals(listOf("n0"), second.next)
+        assertEquals(Keep, second.report(q0, n0, "cur", 400))                     // before the first
+        assertEquals(Keep, second.report(q0, listOf("n0", "n2"), "cur", 500))     // half-way through the first
+        assertEquals(Keep, second.report(finalQ, finalN, "cur", 600))             // the first done, the second not yet
+        assertEquals(Keep, second.report(finalQ, listOf("n0"), "cur", 700))       // the second half-way
+        assertEquals(Match, second.report(second.queued.map { it }, second.next, "cur", 800))
     }
 
     @Test fun anotherSongPlayingEndsThePendingOrder() {
-        assertTrue(pending(listOf("a"), listOf("b")).over(listOf("x"), listOf("y"), "other"))
+        assertTrue(move().report(listOf("x"), listOf("y"), "other", 1) is QueueDragMath.Verdict.Drop)
+    }
+
+    @Test fun steppedAsideRowsAreDrawnWhereTheNewOrderLaysThemOut() {
+        // A row drawn shifted by step() rows from its slot must sit exactly at its slot in the new order:
+        // then dropping needs no row to move.
+        for (size in 2..6) for (from in 0 until size) for (slot in 0 until size) {
+            val order = (0 until size).toList()
+            val after = QueueDragMath.moved(order, from, slot)
+            for (row in order) if (row != from) {
+                assertEquals("size=$size from=$from slot=$slot row=$row", row + QueueDragMath.step(row, from, slot), after.indexOf(row))
+            }
+            assertEquals(slot, after.indexOf(from))
+        }
     }
 }

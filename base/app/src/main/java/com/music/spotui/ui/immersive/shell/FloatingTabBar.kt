@@ -302,7 +302,9 @@ private fun ExpandedTabs(
         Box(
             modifier = Modifier
                 .background(colors.backgroundColor, shapes.tabBarShape)
-                .clip(shapes.tabBarShape)
+                // No clip() ahead of the glass: it clips itself (as the mini player's does), and a
+                // clipping layer around the glass's own offscreen effect layer is what differs
+                // from the surface that renders correctly.
                 .then(tabBarContentModifier())
                 .padding(contentPadding),
         ) {
@@ -443,7 +445,6 @@ private fun ExpandedStandaloneTab(
         isStandalone = true,
         modifier = modifier
             .background(colors.backgroundColor, shapes.standaloneTabShape)
-            .clip(shapes.standaloneTabShape)
             .then(tabBarContentModifier())
             .clickable(
                 onClick = standaloneTab.onClick,

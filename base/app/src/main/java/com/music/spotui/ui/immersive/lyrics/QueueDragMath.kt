@@ -67,20 +67,79 @@ internal object QueueDragMath {
     fun held(place: Place, queueSize: Int, canLeaveQueue: Boolean, fromQueue: Boolean): Place =
         if (fromQueue && !canLeaveQueue && !place.toQueue) Place(true, queueSize) else place
 
+    /** What the engine's latest report means for a [Pending] order. */
+    sealed interface Verdict {
+        /** Nothing to do: the pending order stays (the engine is still before / half-way through the move, or settling). */
+        data object Keep : Verdict
+        /** The engine now shows the expected order. */
+        data object Matched : Verdict
+        /** The pending order is over; the engine's is trusted from now. */
+        data class Drop(val why: String) : Verdict
+    }
+
     /**
-     * The order just dropped, shown until the engine reports it. [queued] / [next] are the rows,
-     * [queuedUris] / [nextUris] the songs' uris in that order, [current] what played then.
+     * The order just dropped, shown until the engine can be trusted again. [queued] / [next] are the
+     * rows, the uris the same songs in order: [preQueued] / [preNext] before the move, [expQueued] /
+     * [expNext] after it. [dragged] is the moved song's uri, [current] what played then.
+     *
+     * The engine reports the move late and in steps (Spotify: the song out of one part, then
+     * queued at the end, then placed), and may repeat or reorder reports. So the order is kept:
+     * through reports of the queue as it was or half-way through this move (however long the
+     * round-trip takes, up to [MAX_MS]), through [GRACE_MS] after the expected order is reported
+     * (a late report of an older state is ignored), and ended by a report that is none of those,
+     * by another song playing, or by those limits. A drop made before the last one was reported
+     * chains to it: its reports are expected on the way.
      */
     class Pending<T>(
         val queued: List<T>, val next: List<T>,
-        private val queuedUris: List<String>, private val nextUris: List<String>,
-        private val current: String?,
+        private val preQueued: List<String>, private val preNext: List<String>,
+        private val expQueued: List<String>, private val expNext: List<String>,
+        private val dragged: String, private val current: String?, private val setAt: Long,
+        private val previous: Pending<T>? = null,
     ) {
-        /**
-         * The engine's report ends it when it shows the same order, or another song plays now. Reports
-         * before that (the queue as it was, or half-way: a song out of one part, not yet in the other) do not.
-         */
-        fun over(reportedQueued: List<String>, reportedNext: List<String>, reportedCurrent: String?): Boolean =
-            (reportedQueued == queuedUris && reportedNext == nextUris) || reportedCurrent != current
+        var matchedAt: Long? = null
+            private set
+
+        private fun isExpected(q: List<String>, n: List<String>) = q == expQueued && n == expNext
+        private fun isBefore(q: List<String>, n: List<String>) = q == preQueued && n == preNext
+
+        /** Half-way: the song is out of both parts, or queued at the end only; the rest as it ends up. */
+        private fun isHalfWay(q: List<String>, n: List<String>): Boolean {
+            if (q.filter { it != dragged } != expQueued.filter { it != dragged } ||
+                n.filter { it != dragged } != expNext.filter { it != dragged }) return false
+            val count = q.count { it == dragged } + n.count { it == dragged }
+            return count == 0 || (count == 1 && n.none { it == dragged } && q.lastOrNull() == dragged)
+        }
+
+        /** A report of the queue before this move or part-way through it (or through the drops it follows). */
+        private fun passing(q: List<String>, n: List<String>): Boolean =
+            isBefore(q, n) || isHalfWay(q, n) ||
+                previous?.let { it.isExpected(q, n) || it.passing(q, n) } == true
+
+        fun report(q: List<String>, n: List<String>, reportedCurrent: String?, now: Long): Verdict {
+            if (reportedCurrent != current) return Verdict.Drop("another song plays")
+            expired(now)?.let { return Verdict.Drop(it) }
+            val matched = matchedAt
+            return when {
+                isExpected(q, n) -> if (matched == null) { matchedAt = now; Verdict.Matched } else Verdict.Keep
+                passing(q, n) -> Verdict.Keep
+                else -> Verdict.Drop(if (matched == null) "engine shows another order" else "queue changed after the move")
+            }
+        }
+
+        /** Why the order is over by time alone, else null. */
+        fun expired(now: Long): String? = when {
+            matchedAt?.let { now - it >= GRACE_MS } == true -> "settled"
+            now - setAt >= MAX_MS -> "no final report in ${MAX_MS / 1000}s"
+            else -> null
+        }
+
+        /** Chains are not needed once this one is reported: [previous] is let go. */
+        fun detach(): Pending<T> = Pending(queued, next, preQueued, preNext, expQueued, expNext, dragged, current, setAt, null)
     }
+
+    /** After the expected order is reported, reports of older states are ignored this long. */
+    const val GRACE_MS = 1_500L
+    /** The longest the engine is waited for. */
+    const val MAX_MS = 10_000L
 }

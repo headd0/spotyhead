@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Radio
 import androidx.compose.material.icons.rounded.Share
@@ -78,7 +79,12 @@ fun ImmersiveSongOptionsSheet(
     var showSleep by remember { mutableStateOf(false) }
     var showCredits by remember { mutableStateOf(false) }
     var showSpeed by remember { mutableStateOf(false) }
+    var showMeaning by remember { mutableStateOf(false) }
     if (showCredits) { CreditsSheet(song = song, onDismiss = { showCredits = false; onDismiss() }); return }
+    if (showMeaning) {
+        ImmersiveMeaningSheet(song.spotifyTrackId, song.title, song.singer, null) { showMeaning = false; onDismiss() }
+        return
+    }
     if (showSpeed) { SpeedSheet(onDismiss = { showSpeed = false; onDismiss() }); return }
     if (showSavedIn) { SavedInSheet(song = song, context = context, onDismiss = { showSavedIn = false; onDismiss() }); return }
     if (showAddTo) {
@@ -185,6 +191,9 @@ fun ImmersiveSongOptionsSheet(
             playerViewModel.goToArtist(song.spotifyTrackId, song.singer) { route -> navController.navigate(route) }
         }
         ImmersiveSheetRow(Icons.Rounded.Info, stringResource(R.string.track_credits), enabled = hasId) { showCredits = true }
+        if (nowPlaying && hasId && !song.url.startsWith("episode:")) {
+            ImmersiveSheetRow(Icons.Rounded.Lightbulb, stringResource(R.string.lyrics_meaning_title)) { showMeaning = true }
+        }
 
         val trackUri = "spotify:track:${song.spotifyTrackId}"
         val excluded by produceState<Boolean?>(null, trackUri) {

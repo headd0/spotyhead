@@ -67,6 +67,7 @@ import com.music.spotui.ui.immersive.shell.ImmersiveFloatingHeader
 import com.music.spotui.ui.immersive.shell.LocalBarControlSize
 import com.music.spotui.ui.immersive.shell.immersiveChromeScroll
 import com.music.spotui.ui.immersive.shell.immersiveHeaderContentPadding
+import com.music.spotui.ui.immersive.shell.rememberTopBarCollapse
 import com.music.spotui.ui.navigation.TabReselect
 import com.music.spotui.ui.navigation.albumRoute
 import com.music.spotui.ui.navigation.artistRoute
@@ -183,7 +184,7 @@ fun ImmersiveHomeScreen(navController: NavController) {
             }
         }
         // The greeting and the profile disc on floating glass; the feed scrolls under it.
-        ImmersiveFloatingHeader(title) {
+        ImmersiveFloatingHeader(title, collapse = rememberTopBarCollapse(listState, 24.dp)) {
             val size = LocalBarControlSize.current
             Box(
                 Modifier.size(size).graphicsLayer { scaleX = size / 44.dp; scaleY = scaleX },

@@ -122,9 +122,9 @@
 
     /**
      * What this app understands beyond the first API, for an extension to adapt to: "audio.manifest",
-     * "audio.expires", "audio.quality", "audio.source", "audio.ahead", "http.all", "status", "raw.base64", "player.localMute".
+     * "audio.expires", "audio.quality", "audio.source", "audio.ahead", "http.all", "status", "raw.base64", and "player.localMute" only when the user granted playback.mirror.
      */
-    features: Object.freeze(['audio.manifest', 'audio.expires', 'audio.quality', 'audio.source', 'audio.ahead', 'http.all', 'status', 'raw.base64', 'player.localMute']),
+    features: Object.freeze(['audio.manifest', 'audio.expires', 'audio.quality', 'audio.source', 'audio.ahead', 'http.all', 'status', 'raw.base64'].concat(parse(host.info()).mirror ? ['player.localMute'] : [])),
 
     /**
      * A sign-in page (webview.auth): open({ url, callback, hidden }) shows url in a web view of its
@@ -188,6 +188,53 @@
   Object.defineProperty(global, 'myspoti', Object.assign({ value: Object.freeze(myspoti) }, fixed));
   Object.defineProperty(global, 'console', Object.assign({ value: console }, fixed));
   Object.defineProperty(global, '__dispatch', Object.assign({ value: dispatch }, fixed));
+
+  // Size guards: native string operations are not interrupted by the time limit, so a script
+  // could ask for gigabytes in one call. The limits are far above what a lyrics, audio or page
+  // extension needs; past them the call throws a RangeError, which the script can catch.
+  var MAX_STRING = 4 * 1024 * 1024;   // result of repeat / padStart / padEnd / join
+  var MAX_INPUT = 8 * 1024 * 1024;    // JSON.parse and regular expression input
+  function guard(proto, name, check) {
+    var original = proto[name];
+    if (typeof original !== 'function') return;
+    Object.defineProperty(proto, name, {
+      value: function () { check.apply(this, arguments); return original.apply(this, arguments); },
+      writable: true, configurable: true, enumerable: false,
+    });
+  }
+  function tooBig(what) { throw new RangeError(what + ': too large'); }
+  guard(String.prototype, 'repeat', function (count) {
+    if (String(this).length * Math.max(0, Number(count) || 0) > MAX_STRING) tooBig('String.prototype.repeat');
+  });
+  ['padStart', 'padEnd'].forEach(function (name) {
+    guard(String.prototype, name, function (length) {
+      if (Number(length) > MAX_STRING) tooBig('String.prototype.' + name);
+    });
+  });
+  guard(Array.prototype, 'join', function (sep) {
+    var s = sep === undefined ? 1 : String(sep).length;
+    if (this.length * s > MAX_STRING) tooBig('Array.prototype.join');
+  });
+  var jsonParse = JSON.parse;
+  Object.defineProperty(JSON, 'parse', {
+    value: function (text, reviver) {
+      if (typeof text === 'string' && text.length > MAX_INPUT) tooBig('JSON.parse');
+      return jsonParse.call(JSON, text, reviver);
+    },
+    writable: true, configurable: true, enumerable: false,
+  });
+  // A regular expression runs natively and cannot be interrupted: at least the input is capped
+  // (a catastrophic pattern on a short input is still the script's own time to lose, see docs).
+  ['exec', 'test'].forEach(function (name) {
+    guard(RegExp.prototype, name, function (input) {
+      if (String(input).length > MAX_INPUT / 4) tooBig('RegExp.prototype.' + name);
+    });
+  });
+  ['match', 'matchAll', 'replace', 'replaceAll', 'search', 'split'].forEach(function (name) {
+    guard(String.prototype, name, function () {
+      if (String(this).length > MAX_INPUT / 4) tooBig('String.prototype.' + name);
+    });
+  });
 
   // No code built from strings: what was reviewed is what runs.
   // Function keeps its prototype, so `instanceof Function` and Function.prototype.call still work.

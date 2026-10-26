@@ -3,6 +3,8 @@ package com.music.spotui.extensions
 import app.myspoti.extensions.Archive
 import app.myspoti.extensions.BlockList
 import app.myspoti.extensions.Catalog
+import app.myspoti.extensions.CodeDiff
+import app.myspoti.extensions.RepoIds
 import app.myspoti.extensions.ExtensionException
 import app.myspoti.extensions.ExtensionPackage
 import app.myspoti.extensions.GitHub
@@ -41,7 +43,7 @@ object ExtensionUpdates {
     class Fetched(val zip: ByteArray, val pkg: ExtensionPackage, val origin: Origin?)
 
     /** What a check found, for the "Check for updates" button. */
-    enum class Result { UP_TO_DATE, APPLIED, NEEDS_OK, DECLINED, SOURCE_GONE, INCOMPATIBLE, BLOCKED, NOT_FROM_GITHUB, FAILED }
+    enum class Result { UP_TO_DATE, APPLIED, WAITING, REPO_CHANGED, NEEDS_OK, DECLINED, SOURCE_GONE, INCOMPATIBLE, BLOCKED, NOT_FROM_GITHUB, FAILED }
 
     private val _blocks = MutableStateFlow(BlockList.EMPTY)
     val blocks: StateFlow<BlockList> = _blocks.asStateFlow()
@@ -111,6 +113,12 @@ object ExtensionUpdates {
         return runCatching { get(api, MAX_TEXT).body?.decodeToString()?.let(Discovery::parseDefaultBranch) }.getOrNull() ?: "main"
     }
 
+    /** The numeric ids the host gives [repo] and its owner (null when the host does not answer: nothing is pinned then). */
+    internal fun identity(repo: GitHubRepo): RepoIds? = runCatching {
+        val a = get(Discovery.identityUrl(repo), MAX_TEXT, accept = if (repo.host == app.myspoti.extensions.CodeHost.GITHUB) "application/vnd.github+json" else null)
+        if (a.status in 200..299) a.body?.decodeToString()?.let { Discovery.parseIdentity(repo.host, it) } else null
+    }.getOrNull()
+
     private class SourceGone : ExtensionException("its GitHub repository is gone")
 
     /**
@@ -141,7 +149,8 @@ object ExtensionUpdates {
             throw ExtensionException("the package is not the one the store lists (sha256 differs)")
         val pkg = ExtensionPackage.read(zip)
         val from = movedTo ?: GitHub.repoOf(answer.finalUrl) ?: repo.slug
-        Fetched(zip, pkg, Origin(from, at ?: GitHubRepo.HEAD, isTag, commit = if (asset) null else Archive.commit(raw), asset = asset))
+        val ids = identity(GitHubRepo.parse(from) ?: repo)
+        Fetched(zip, pkg, Origin(from, at ?: GitHubRepo.HEAD, isTag, commit = if (asset) null else Archive.commit(raw), asset = asset, repoId = ids?.repo, ownerId = ids?.owner))
     }
 
     // ── Updates ──
@@ -198,31 +207,61 @@ object ExtensionUpdates {
         val manifestAnswer = get(repo.raw(concrete(repo, ref), "manifest.json"), MAX_TEXT)
         if (manifestAnswer.status == 404 && tag == null) throw SourceGone()
         val listed = manifestAnswer.body?.let { runCatching { Manifest.parse(it.decodeToString()) }.getOrNull() }
+        val head = tag == null
         if (e.sourceGone) Extensions.update { r -> r.find(id)?.let { r.put(it.copy(sourceGone = false)) } ?: r }
         // A release without a manifest at its root (its package only in the asset) is read in full.
-        if (listed != null && listed.versionCode <= e.versionCode) return Result.UP_TO_DATE
-        if (listed != null && !manual && listed.versionCode == e.declinedVersionCode) return Result.DECLINED
-        if (listed != null && e.pendingUpdate?.kept?.versionCode == listed.versionCode) return Result.NEEDS_OK
+        // A tag is immutable: the same version code there is the same code. A branch can change under the same version.
+        if (listed != null && (listed.versionCode < e.versionCode || listed.versionCode == e.versionCode && !head)) return Result.UP_TO_DATE
+        val newer = listed != null && listed.versionCode > e.versionCode
+        if (newer && !manual && listed!!.versionCode == e.declinedVersionCode) return Result.DECLINED
+        if (newer && e.pendingUpdate?.kept?.versionCode == listed!!.versionCode) return Result.NEEDS_OK
         val f = fromGitHub(repo, tag ?: ref, tag = tag != null).let { f -> movedTo?.let { Fetched(f.zip, f.pkg, f.origin?.copy(repo = it)) } ?: f }
         val m = f.pkg.manifest
-        if (m.versionCode <= e.versionCode) return Result.UP_TO_DATE
-        if (!manual && m.versionCode == e.declinedVersionCode) return Result.DECLINED
+        if (m.versionCode < e.versionCode || m.versionCode == e.versionCode && (!head || f.pkg.sha256 == e.sha256)) return Result.UP_TO_DATE
+        if (!manual && m.versionCode == e.declinedVersionCode && (e.declinedSha == null || e.declinedSha == f.pkg.sha256)) return Result.DECLINED
         if (blocked(m.id, f.pkg.sha256) != null) return Result.BLOCKED
         if (!Catalog.Entry(m.id, m.name, m.version, m.versionCode, m.apiVersion, m.author, url = "", sha256 = "", minAppVersion = m.minAppVersion)
                 .compatible(app.myspoti.engine.BuildConfig.VERSION_NAME)) return Result.INCOMPATIBLE
-        val accepted = e.accepted ?: Extensions.manifest(id)?.let { Snapshot.of(it, origin.repo) } ?: return Result.FAILED
+        val running = Extensions.pkg(id)
+        var accepted = e.accepted ?: Extensions.manifest(id)?.let { Snapshot.of(it, origin.repo) } ?: return Result.FAILED
+        // Installs from before the code and the repository were pinned: pinned now, from what runs and what the host says, without asking.
+        if (accepted.scriptSha == null || accepted.repoId == null) {
+            val ids = if (accepted.repoId == null) (origin.repoId?.let { RepoIds(it, origin.ownerId.orEmpty()) }?.takeIf { it.owner.isNotEmpty() } ?: identity(repo)) else null
+            accepted = accepted.copy(
+                scriptSha = accepted.scriptSha ?: running?.script?.let(Snapshot::scriptHash),
+                repoId = accepted.repoId ?: ids?.repo, ownerId = accepted.ownerId ?: ids?.owner,
+            )
+            Extensions.update { r -> r.find(id)?.let { r.put(it.copy(accepted = accepted)) } ?: r }
+        }
+        val next = Snapshot.of(m, f.origin?.repo, f.pkg.script, f.origin)
+        val code = CodeDiff.of(running?.let { mapOf(it.manifest.main to it.script) }.orEmpty(), mapOf(m.main to f.pkg.script))
+        val now = System.currentTimeMillis()
+        // The user asked now (the button): no wait. Else the clock runs from when this very package was first seen.
+        val firstSeen = if (manual) null else if (e.seenSha == f.pkg.sha256 && e.seenAt > 0) e.seenAt else now
         val kept = KeptVersion(m.version, m.versionCode, f.pkg.sha256, f.origin)
-        return when (val d = UpdateGate.decide(accepted, Snapshot.of(m, f.origin?.repo))) {
+        return when (val d = UpdateGate.decide(accepted, next, code, firstSeen, now)) {
+            is UpdateGate.Decision.Block -> {
+                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(updateBlocked = d.reason, pendingUpdate = null)) } ?: r }
+                File(Extensions.dir, "$id/staging.zip").delete()
+                Extensions.log(id, "update from ${origin.repo} refused: repository changed owner (${d.reason})")
+                Result.REPO_CHANGED
+            }
+            is UpdateGate.Decision.Wait -> {
+                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(updateBlocked = null, seenSha = f.pkg.sha256, seenAt = firstSeen ?: now)) } ?: r }
+                Extensions.log(id, "${m.version} seen: applied by itself after 24 h")
+                Result.WAITING
+            }
             UpdateGate.Decision.Apply -> {
                 val plan = InstallPlan.of(m, e, accepted.toManifest()) as? InstallPlan.Update ?: return Result.UP_TO_DATE
                 Extensions.install(f.zip, f.pkg, Grants.replacing(m, plan.refused), e.source, origin = f.origin, accepted = false)
-                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(accepted = it.accepted ?: accepted, pendingUpdate = null)) } ?: r }
-                Extensions.log(id, "updated by itself to ${m.version}: it asks nothing new")
+                val pinned = accepted.copy(scriptSha = next.scriptSha ?: accepted.scriptSha)
+                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(accepted = pinned, pendingUpdate = null, updateBlocked = null, seenSha = null, seenAt = 0)) } ?: r }
+                Extensions.log(id, "updated by itself to ${m.version}: it asks nothing new (${code.lines} lines changed)")
                 Result.APPLIED
             }
             is UpdateGate.Decision.Ask -> {
                 Extensions.writeBytesAtomically(File(Extensions.dir, "$id/staging.zip"), f.zip)
-                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(pendingUpdate = PendingUpdate(kept, d.changes, m.changelog))) } ?: r }
+                Extensions.update { r -> r.find(id)?.let { r.put(it.copy(updateBlocked = null, pendingUpdate = PendingUpdate(kept, d.changes, m.changelog))) } ?: r }
                 Extensions.log(id, "${m.version} waits for your OK: ${d.changes.joinToString { "${it.kind.name.lowercase()} ${it.key}" }}")
                 Result.NEEDS_OK
             }
@@ -244,6 +283,7 @@ object ExtensionUpdates {
      */
     suspend fun accept(id: String) = withContext(Dispatchers.IO) {
         val e = Extensions.registry.value.find(id) ?: return@withContext
+        e.updateBlocked?.let { throw ExtensionException("update refused: the repository changed owner") }
         val p = staged(id) ?: run { Extensions.update { r -> r.put(e.copy(pendingUpdate = null)) }; throw ExtensionException("the update is no longer on the phone: check again") }
         val accepted = e.accepted?.toManifest() ?: Extensions.manifest(id)
         val plan = InstallPlan.of(p.manifest, e, accepted) as? InstallPlan.Update ?: return@withContext
@@ -257,7 +297,7 @@ object ExtensionUpdates {
     fun keepCurrent(id: String) {
         val e = Extensions.registry.value.find(id) ?: return
         File(Extensions.dir, "$id/staging.zip").delete()
-        Extensions.update { r -> r.put(e.copy(pendingUpdate = null, declinedVersionCode = e.pendingUpdate?.kept?.versionCode ?: e.declinedVersionCode)) }
+        Extensions.update { r -> r.put(e.copy(pendingUpdate = null, declinedVersionCode = e.pendingUpdate?.kept?.versionCode ?: e.declinedVersionCode, declinedSha = e.pendingUpdate?.kept?.sha256 ?: e.declinedSha)) }
         Extensions.log(id, "kept ${e.version}: ${e.pendingUpdate?.kept?.version} declined")
     }
 

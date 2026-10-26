@@ -21,6 +21,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material3.Scaffold
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -275,18 +276,27 @@ private fun SupportDialog(supporter: Boolean, onSupport: () -> Unit, onSponsor: 
 }
 
 /**
- * "New version" dialog: checked at launch (off the UI thread), shown as soon as the answer is
+ * "New version" dialog: checked at launch and on every return to the app (off the UI thread), shown as soon as the answer is
  * known. "Later" hides it; Settings > About offers the update again.
  */
 @Composable
 private fun UpdatePrompt() {
     val context = androidx.compose.ui.platform.LocalContext.current
     var release by updateRelease
-    androidx.compose.runtime.LaunchedEffect(Unit) {
-        // Turned off in Settings: no check at launch. The manual check there still asks.
-        if (!com.music.spotui.data.preferences.AutoUpdateCheckPref.on) return@LaunchedEffect
-        // At once: the request runs on the IO dispatcher, nothing waits for it.
-        release = com.music.spotui.data.api.UpdateChecker.check(context)
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.LaunchedEffect(owner) {
+        // Each time the app comes to the foreground (the check itself skips when the last one is
+        // under an hour old), then every 6 h while it stays open. Turned off in Settings: no
+        // automatic check; the manual one there still asks.
+        owner.lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+            while (true) {
+                if (com.music.spotui.data.preferences.AutoUpdateCheckPref.on) {
+                    // The request runs on the IO dispatcher, nothing waits for it.
+                    com.music.spotui.data.api.UpdateChecker.check(context)?.let { release = it }
+                }
+                kotlinx.coroutines.delay(com.music.spotui.data.api.UpdateChecker.PERIODIC_MS)
+            }
+        }
     }
     updateCardOpen.value = release != null
     val r = release ?: return

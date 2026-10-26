@@ -94,8 +94,8 @@ switch and action icons, in the user's order (arrows; installation order until m
 is the one the area asks them in (section 3) and the one the playback arbiter uses. The Built-in row says in
 one plain sentence what the app already does there; an area no extension acts in says "No
 extension — the app already does: …". Nothing is ever installed without the install prompt, and
-the samples in `docs/extensions/samples` are for authors only. An exclusive
-action shows which extension is **Active** and which are **Idle**. Under each area, the last things
+the samples in `docs/extensions/samples` are for authors only. Audio and download sources are
+ordered in Settings (Playback, Downloads). Under each area, the last things
 extensions did there ("Lyrics of X from Y", "Skipped by Z") with a one-tap Turn off.
 
 ## 2. Manifest
@@ -188,7 +188,7 @@ player.buttons action in the manifest`):
 
 The lyrics, song details, Home, search, menu and player hooks are **additive**: every extension is
 asked, the answers merged in the area's order (lyrics: the best, ties to the higher one). Audio and
-downloads are **exclusive**: only the active extension of the area is asked (section 4.2). Registering twice replaces. Returning
+downloads are **ordered**: asked one after the other in the user's order until one answers (section 4.2). Registering twice replaces. Returning
 `null`/`undefined` means "no answer": the app goes on without this extension. A throw or a timeout
 is a failure (recorded as the extension's last error, shown on its page). Calls are synchronous:
 return the answer, do not return a promise.
@@ -227,8 +227,8 @@ Action: `lyrics.provide` (normal). Usually you also need `network`.
 ### `audio-source`
 
 Where the audio of a song is. The song then plays in Myspoti's own player, like a download;
-Spotify's player does not play it. Action: `audio.source` (critical, exclusive: one active
-extension).
+Spotify's player does not play it. Action: `audio.source` (critical, ordered: the sources are
+asked in the user's order, Spotify included; the ones under Spotify are not asked).
 
 ```js
 { url: 'https://cdn.example.com/a.m4a',   // http or https, not a local address; required
@@ -304,7 +304,7 @@ what you hand over: it downloads the file, runs the same checks on any file what
 recording: if you want that check (an official preview, a fingerprint), do it in the extension
 before answering, and say `isrcMatched` only for a file you found by the song's ISRC. Without an
 extension providing this hook, downloads tell the user to install one. Action: `download.source`
-(critical, exclusive: one active extension).
+(critical, ordered: asked in the user's order until one has the song).
 
 The input is the track of this section plus `quality`, what the user asked for:
 
@@ -568,7 +568,7 @@ myspoti.on('setting', function (e) {
 The closed catalogue. The icon is the Material Rounded icon the app draws; the user sees the icon,
 the label and your `why`. **Critical** actions are shown in the warning colour and explained; the
 app frames them at run time (destructive Spotify writes are confirmed one by one, section 6; audio
-and downloads are exclusive; pages are locked down, sign-in pages have their own profile). The sandbox enforces exactly what the manifest
+and downloads are asked in the user's order; pages are locked down, sign-in pages have their own profile). The sandbox enforces exactly what the manifest
 declares: a call outside it throws (`"x is not in this extension's manifest (actions)"`). The user
 cannot untick single actions: installing grants all of them. An extension installed by an older
 Myspoti that let the user untick some stays off, with a "Waits for your OK" card on its page,
@@ -581,8 +581,8 @@ until the user accepts them all with the same tick.
 | `playback.events` | GraphicEq | Know what you play | normal | shared | `myspoti.player.current()`, `myspoti.on('track' \| 'playback')`, `spotify.player` state, queue, volume, media (`myspoti.spotify.media`) |
 | `lyrics.provide` | Lyrics | Provide lyrics | normal | additive, takeover | `lyrics` hook |
 | `trackinfo.provide` | Info | Add song details | normal | additive, takeover | `trackinfo` hook |
-| `audio.source` | Headphones | Play audio from elsewhere | **critical** | exclusive, takeover | `audio-source` hook |
-| `download.source` | Download | Provide downloads | **critical** | exclusive, takeover | `download-source` hook |
+| `audio.source` | Headphones | Play audio from elsewhere | **critical** | ordered, takeover | `audio-source` hook |
+| `download.source` | Download | Provide downloads | **critical** | ordered, takeover | `download-source` hook |
 | `home.sections` | Dashboard | Add Home sections | normal | additive, takeover | `home` hook |
 | `search.provide` | ManageSearch | Add search results | normal | additive, takeover | `search` hook |
 | `menu.items` | MoreHoriz | Add menu entries | normal | additive, takeover | `menu` hook |
@@ -616,10 +616,10 @@ migrated the same way when the app starts.
 
 - **Additive** actions (lyrics, song details, Home, search, menus, player): every extension adds;
   answers are merged in the area's order, duplicates dropped, quotas per extension (section 3).
-- **Exclusive** actions (`audio.source`, `download.source`): one extension acts per action, the one
-  the user made active (else the first in the area). Installing or turning on a second says
-  "Replaces *song audio*, currently provided by Y" and the user picks; the other stays installed,
-  idle, and can be made active again from the Installed tab.
+- **Ordered** actions (`audio.source`, `download.source`): every source is asked in the order the
+  user sets in Settings (Playback, Downloads), each action its own order, until one answers. A new
+  source goes last; installing a second one asks nothing. For audio, Spotify has its place in the
+  order too (last until moved): the sources under it are not asked.
 - `conflictsWith` / `replaces`: "Incompatible with X (installed)" / "Replaces X (installed)" in the
   store, and the install or turn-on prompt asks which to keep; the one not kept is turned off (or the
   new one installs turned off).
@@ -854,7 +854,7 @@ type means optional/nullable. Returns of "—" mean `null`.
 | `skipTo(item: {uri,uid?})` | — | write |  |
 | `moveInQueue(item: {uri,uid?}, target: {uri,uid?}, after = false)` | — | write |  |
 | `setVolume(level: number)` | — | write |  |
-| `setLocalMute(on: boolean)` | — | write | Keeps the Web Player playing but unheard (`myspoti.features` has `player.localMute`). While on, the app ignores the Web Player's state, so an extension playing a file itself can mirror the same track there without being replaced. Cleared when the local player stops. |
+| `setLocalMute(on: boolean)` | `playback.mirror` (critical) | write | Keeps Spotify playing unheard on this phone (`myspoti.features` has `player.localMute` only when the user granted `playback.mirror`). It can keep Spotify playing silently and counts listens on the user's Spotify account, so the user ticks the accept-risk box. Host rules, whatever the script does: honoured only while Myspoti's own local / extension player is playing; one extension at a time; at most one enable per 20 s; cleared by itself on track change, local pause or stop, the local track's duration, and when the extension is disabled, uninstalled, blocked or crashes. Both players show "Spotify mirrored by <extension>", and the Activity log and Logbook record each enable and clear. Existing installs do not have it until the user accepts the action through the update / consent flow. |
 | `setSpeed(speed: number)` | — | write |  |
 
 `media(trackUri)` (also `myspoti.spotify.media(trackUri)`) returns the media manifest Spotify sent the
@@ -1303,3 +1303,8 @@ the extension to `blocked.json` (turned off on every phone, with the reason) or 
 from the store); see `POLICY.md` and `REPORTING.md` in that repository. The same repository can also
 list "verified" extensions in its `index.json` (optional, the owner's choice; the app shows it in the
 store only when it lists at least one).
+
+
+### `raw.request` "Always allow" is per operation
+
+A write the user allows for good is a grant on method + host + path pattern. On a multiplexed endpoint (GraphQL / pathfinder, or any request whose JSON body carries `operationName` or a persisted-query `sha256Hash`) the grant also names that operation: it never covers another one. If no operation can be determined from the body on such an endpoint, "Always allow" is not offered and the user is asked each time. The consent shows the real operation, and the revocation list shows it too (`POST https://host/path [operation name]`). Grants stored before this change on such endpoints without an operation were dropped (the user is asked again). Writes declared in the manifest (`writes`) on a multiplexed path cannot cover operations; the user is asked.

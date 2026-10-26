@@ -111,6 +111,9 @@ data class Origin(
     val tag: Boolean = false,
     val commit: String? = null,
     val asset: Boolean = false,
+    /** The host's numeric ids of the repository and its owner, pinned when installed (null: not read yet). */
+    val repoId: String? = null,
+    val ownerId: String? = null,
 ) {
     fun gitHub(): GitHubRepo? = GitHubRepo.parse(repo)
 

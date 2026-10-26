@@ -34,6 +34,12 @@ data class Manifest(
      * `[{ "name": "lyrics.provide", "why": "Synced lyrics from LRCLIB" }, { "name": "network", "hosts": ["lrclib.net"], "why": "…" }]`.
      */
     val actions: List<ActionRequest> = emptyList(),
+    /**
+     * `media`: the hosts its audio and download addresses (and block images) may point at, apart
+     * from its `network` hosts: `{ "hosts": ["*.audio.example.com"] }`. Shown in the install prompt.
+     * Absent (an older extension): audio and download addresses may name any public host, as before.
+     */
+    val media: Media? = null,
     /** Old format (before [actions]): the hooks it takes over. Still read, mapped to actions. */
     val provides: List<String> = emptyList(),
     /** Old format: what it reaches. Still read, mapped to actions. */
@@ -98,6 +104,9 @@ data class Manifest(
         .mapNotNull { w -> runCatching { w.trim().split(Regex("\\s+"), 2).let { (m, u) -> RawRequest.offer(RawRequest.check(m, u), u) } }.getOrNull() }
         .distinct()
 
+    /** The hosts `media` lists, or null when the manifest has no `media` (an older one: see [media]). */
+    fun mediaHosts(): List<String>? = media?.hosts
+
     /** The hosts `network` lists. */
     fun hosts(): List<String> = declared().firstOrNull { it.name == Action.NETWORK.key }?.hosts.orEmpty()
 
@@ -105,7 +114,7 @@ data class Manifest(
     fun asks(): List<Ask> = declared().mapNotNull { r ->
         val a = Action.of(r.name) ?: return@mapNotNull null
         if (a == Action.NETWORK && r.hosts.any { it == "*" }) Ask(Action.NETWORK_ANY, Level.CRITICAL, r.why, r.hosts, a)
-        else Ask(a.key, a.level, r.why, r.hosts + if (a == Action.SPOTIFY_RAW) declaredWrites().map { it.toString() } else emptyList(), a)
+        else Ask(a.key, a.level, r.why, r.hosts + (if (a == Action.AUDIO_SOURCE || a == Action.DOWNLOAD_SOURCE) media?.hosts.orEmpty() else emptyList()) + if (a == Action.SPOTIFY_RAW) declaredWrites().map { it.toString() } else emptyList(), a)
     }
 
     /** True when the user is shown the warning and has to tick that they accept the risk. */
@@ -180,6 +189,10 @@ data class Manifest(
                 }
             }
         }
+        media?.let { m ->
+            if (m.hosts.size > 20) add("media: 20 hosts at most")
+            m.hosts.filter { it == "*" || !HOST.matches(it) }.forEach { add("media host \"$it\": a host name or *.domain (not *)") }
+        }
         if (actions.size != actions.map { it.name }.toSet().size) add("actions: an action listed twice")
         if (settings.isNotEmpty() && actions.none { it.name == Action.SETTINGS_PAGE.key }) add("settings: add the settings.page action (with its why) to have a settings page")
     }
@@ -235,6 +248,10 @@ data class Manifest(
  */
 @Serializable
 data class Welcome(val message: String = "", val steps: List<String> = emptyList())
+
+/** `media`: where audio, downloads and block images may come from, besides the `network` hosts. */
+@Serializable
+data class Media(val hosts: List<String> = emptyList())
 
 @Serializable
 data class PermissionRequest(

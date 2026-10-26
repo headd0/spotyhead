@@ -89,6 +89,16 @@ object ExtensionStore {
     /** Per repository (`owner/name`), its 👍 / 👎 (no account needed to read them). */
     val ratings = MutableStateFlow<Map<String, Rating>>(emptyMap())
 
+    /** Per repository slug, the ids the hosts' searches gave it: compared with those pinned at install ([identityChanged]). */
+    val identities = MutableStateFlow<Map<String, app.myspoti.extensions.RepoIds>>(emptyMap())
+
+    /** Whether the discovery shows another repository or owner id under the slug [e] was installed from. */
+    fun identityChanged(e: InstalledExtension): Boolean {
+        val pinned = e.accepted ?: return false
+        val seen = e.origin?.repo?.let { identities.value[it] } ?: return false
+        return pinned.repoId != null && pinned.repoId != seen.repo || pinned.ownerId != null && pinned.ownerId != seen.owner
+    }
+
     /** Per repository, the downloads of its release's package, read on its store page. */
     val downloads = MutableStateFlow<Map<String, Long>>(emptyMap())
 
@@ -111,6 +121,7 @@ object ExtensionStore {
                     }.getOrElse { failed += "${h.label}: ${it.message ?: it}"; emptyList() }
                 }
                 if (failed.size == CodeHost.entries.size) throw ExtensionException(failed.joinToString("; "))
+                identities.value = found.mapNotNull { f -> f.ids?.let { f.repo!!.slug to it } }.toMap()
                 val gate = Semaphore(8)
                 val entries = withContext(Dispatchers.IO) {
                     found.map { f ->

@@ -658,6 +658,7 @@ fun PlayerScreen(navController: NavController) {
                 )
                 // Buttons from extensions (player.buttons), under the player's own controls.
                 val extTrack = androidx.compose.runtime.remember(songTitle, songSinger) { com.music.spotui.extensions.Extensions.currentTrack() }
+                com.music.spotui.extensions.MirrorIndicator()
                 com.music.spotui.extensions.ExtensionPlayerButtons(extTrack)
                 // 8dp card margin + this = the official 37dp from the buttons' centre to the card.
                 Spacer(modifier = Modifier.height(12.dp))

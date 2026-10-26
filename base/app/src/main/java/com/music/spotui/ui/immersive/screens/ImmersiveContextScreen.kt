@@ -197,7 +197,7 @@ private fun ContextLoading(navController: NavController, sleeve: Dp) {
             state = listState,
             userScrollEnabled = false,
             contentPadding = PaddingValues(top = immersiveTopContentPadding(), bottom = Immersive.BottomChrome),
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().immersiveHazeSource(),
         ) {
             item(key = "skeleton:context:header") {
                 Column(Modifier.fillMaxWidth().padding(bottom = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {

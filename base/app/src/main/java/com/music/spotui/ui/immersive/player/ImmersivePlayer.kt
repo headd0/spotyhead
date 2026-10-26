@@ -451,6 +451,7 @@ fun ImmersivePlayer(
                     )
                     // Buttons from extensions (player.buttons), under the player's own controls.
                     val extTrack = remember(state.title, state.artist) { com.music.spotui.extensions.Extensions.currentTrack() }
+                    com.music.spotui.extensions.MirrorIndicator()
                     com.music.spotui.extensions.ExtensionPlayerButtons(extTrack)
                     Spacer(Modifier.height(18.dp))
                 }

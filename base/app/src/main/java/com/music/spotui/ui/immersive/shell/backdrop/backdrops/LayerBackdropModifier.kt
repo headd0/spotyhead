@@ -20,6 +20,7 @@ import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.invalidateDraw
+import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.platform.InspectorInfo
 import com.music.spotui.ui.immersive.shell.backdrop.internal.recordLayer
 
@@ -86,23 +87,43 @@ private class LayerBackdropNode(
             drawContent()
             return
         }
-        recordLayer(this@LayerBackdropNode, backdrop.graphicsLayer) { backdrop.onDraw(this@draw) }
-        drawLayer(backdrop.graphicsLayer)
+        // One recording per source, read in the draw phase so every frame of a transition redraws it.
+        val layer = source.layer
+        if (layer == null || layer.isReleased) {
+            if (layer != null) app.myspoti.host.android.Logbook.log("glass: backdrop source drawn after release, drawing the page directly")
+            return drawContent()
+        }
+        recordLayer(this@LayerBackdropNode, layer) { backdrop.onDraw(this@draw) }
+        drawLayer(layer)
     }
 
-    private var own: LayoutCoordinates? = null
+    private val source = LayerBackdrop.Source()
+    private var registeredIn: LayerBackdrop? = null
+
+    override fun onAttach() {
+        registeredIn = backdrop
+        source.layer = requireGraphicsContext().createGraphicsLayer()
+        backdrop.sources.add(source)
+    }
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
         if (coordinates.isAttached) {
-            own = coordinates
-            backdrop.layerCoordinates = coordinates
+            source.coordinates = coordinates
+            // The backdrop may have been swapped by update(): follow it.
+            if (registeredIn !== backdrop) {
+                registeredIn?.retire(source)
+                registeredIn = backdrop
+                backdrop.sources.add(source)
+            }
+            backdrop.publish(source)
         }
     }
 
     override fun onDetach() {
-        // Vendored change: two pages record into one backdrop while a page transition runs; the
-        // one leaving must not blank the coordinates the one staying has just reported.
-        if (backdrop.layerCoordinates === own) backdrop.layerCoordinates = null
-        own = null
+        registeredIn?.retire(source)
+        registeredIn = null
+        source.coordinates = null
+        source.layer?.let { requireGraphicsContext().releaseGraphicsLayer(it) }
+        source.layer = null
     }
 }

@@ -51,12 +51,11 @@ class GitHubTest {
         assertEquals(Change.Kind.REPLACES, changes(lyrics, net, replaces = listOf("io.github.other.lyrics")).single().kind)
     }
 
-    @Test fun anExclusiveRoleOnAnAcceptedActionIsAChange() {
+    @Test fun aSourceIsNotAnExclusiveRole() {
+        // Sources are asked in the user's order now: an update keeping audio.source asks nothing new.
         val m = manifest(1, req("audio.source", "Plays from my server"))
-        val accepted = snap(m).copy(exclusive = emptyList())
-        val c = (UpdateGate.decide(accepted, snap(manifest(2, req("audio.source", "Plays from my server")))) as UpdateGate.Decision.Ask).changes.single()
-        assertEquals(Change.Kind.EXCLUSIVE, c.kind)
-        // A new exclusive action is listed once, as an action.
+        assertTrue(UpdateGate.decide(snap(m), snap(manifest(2, req("audio.source", "Plays from my server")))) is UpdateGate.Decision.Apply)
+        // A new source action is listed once, as an action.
         val fresh = (UpdateGate.decide(snap(manifest(1, lyrics)), snap(manifest(2, lyrics, req("audio.source", "x")))) as UpdateGate.Decision.Ask).changes
         assertEquals(listOf(Change.Kind.ACTION), fresh.map { it.kind })
     }

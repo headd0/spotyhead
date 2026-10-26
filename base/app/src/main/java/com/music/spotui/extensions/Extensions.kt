@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -128,7 +129,12 @@ object Extensions {
         if (isReady) return
         ctx = application
         dir = File(application.filesDir, "extensions")
-        _registry.value = Registry.read(File(dir, "registry.json"))
+        _registry.value = Registry.read(File(dir, "registry.json")).let { r ->
+            // Always-allow grants without an operation on a multiplexed endpoint (GraphQL) covered every
+            // operation: dropped, the user is asked again (per operation from now on).
+            if (r.extensions.none { e -> e.rawGrants.any { it.tooBroad } }) r
+            else r.extensions.fold(r) { acc, e -> if (e.rawGrants.any { it.tooBroad }) acc.put(e.copy(rawGrants = e.rawGrants.filterNot { it.tooBroad })) else acc }
+        }
         // A protected surface just went: what extensions draw is asked again.
         CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { guard.state.collect { if (it.isEmpty()) blocksTick.value++ } }
         scope.launch {
@@ -267,7 +273,7 @@ object Extensions {
                 disabledReason = if (startOff) "kept the extension it conflicts with" else null,
                 installedAt = before?.installedAt ?: System.currentTimeMillis(), source = source,
                 origin = origin ?: before?.origin,
-                accepted = if (accepted) Snapshot.of(p.manifest, (origin ?: before?.origin)?.repo)
+                accepted = if (accepted) Snapshot.of(p.manifest, (origin ?: before?.origin)?.repo, p.script, origin ?: before?.origin)
                     else before?.accepted ?: beforeManifest?.let { Snapshot.of(it, before?.origin?.repo) },
                 previous = if (before != null && before.sha256 != p.sha256) KeptVersion(before.version, before.versionCode, before.sha256, before.origin) else before?.previous,
                 declinedVersionCode = before?.declinedVersionCode ?: 0,
@@ -365,15 +371,19 @@ object Extensions {
     // ── The hooks, at their fixed points ──
 
     /**
-     * The running extensions providing [hook], in their area's priority order. An exclusive action
-     * ([app.myspoti.extensions.Mode.EXCLUSIVE]) has one: the one the user made active, else the first.
+     * The running extensions providing [hook], in their area's priority order (a source: in the
+     * user's order for it, [sources]). An exclusive action ([app.myspoti.extensions.Mode.EXCLUSIVE])
+     * has one: the one the user made active, else the first.
      */
     private fun providing(hook: Hook): List<Pair<String, ExtensionRuntime>> = _registry.value.let { r ->
-        val area = (hook.action?.area ?: Area.OTHER).key
+        val action = hook.action
+        val area = (action?.area ?: Area.OTHER).key
         // A source whose last `status` said it does not answer is skipped: the next one, or Spotify, plays.
         val skip = { id: String -> hook in SOURCE_HOOKS && health.inactive(id) }
-        val all = r.byPriority(area, r.extensions) { it.id }.mapNotNull { e -> runtimes[e.id]?.takeIf { e.enabled && it.provides(hook) && !skip(e.id) }?.let { e.id to it } }
-        val action = hook.action
+        // A source: the extensions above Spotify only (all of them while Spotify is last).
+        val ordered = if (action?.mode == app.myspoti.extensions.Mode.ORDERED) line(r, action).takeWhile { it != SPOTIFY_SOURCE }.mapNotNull(r::find)
+            else r.byPriority(area, r.extensions) { it.id }
+        val all = ordered.mapNotNull { e -> runtimes[e.id]?.takeIf { e.enabled && it.provides(hook) && !skip(e.id) }?.let { e.id to it } }
         if (action == null || action.mode != app.myspoti.extensions.Mode.EXCLUSIVE) all
         else Conflicts.activeFor(all.map { it.first }, r.active[action.key]).let { one -> all.filter { it.first == one } }
     }
@@ -386,6 +396,23 @@ object Extensions {
         r.move(area.key, Areas.group(r, ::manifest).getValue(area).map { it.id }, id, delta)
     }
 
+    /** The installed extensions giving the source [action] (audio, downloads), in the order they are asked. */
+    fun sources(action: Action): List<InstalledExtension> = _registry.value.let { r -> line(r, action).mapNotNull(r::find) }
+
+    /**
+     * The order the source [action] asks in, as ids: its extensions and, for audio, Spotify
+     * ([SPOTIFY_SOURCE], last until the user moves it up; the extensions after it are not asked).
+     */
+    fun sourceLine(action: Action): List<String> = line(_registry.value, action)
+
+    private fun line(r: Registry, action: Action): List<String> {
+        val ids = r.extensions.filter { action in manifest(it.id)?.actionSet().orEmpty() }.map { it.id }
+        return r.bySourceOrder(action.key, Area.AUDIO.key, if (action == Action.AUDIO_SOURCE) ids + SPOTIFY_SOURCE else ids) { it }
+    }
+
+    /** Moves [id] (an extension, or [SPOTIFY_SOURCE]) up (negative [delta]) or down in the order the source [action] asks in. */
+    fun moveSource(action: Action, id: String, delta: Int) = update { r -> r.move(action.key, line(r, action), id, delta) }
+
     /** Makes [id] the one acting for the exclusive [action]; the others stay installed, idle. */
     fun setActive(action: Action, id: String) {
         update { it.copy(active = it.active + (action.key to id)) }
@@ -396,6 +423,57 @@ object Extensions {
     fun activeFor(action: Action): String? = _registry.value.let { r ->
         Conflicts.activeFor(action.area?.let { byArea()[it] }.orEmpty().filter { it.enabled && action in manifest(it.id)?.actionSet().orEmpty() }.map { it.id }, r.active[action.key])
     }
+
+    // ── Silent Spotify mirror (player.setLocalMute, playback.mirror) ──
+
+    /** The host's rules for the mute; the app feeds it the local player's state. */
+    val mirror = app.myspoti.extensions.MirrorGuard()
+
+    /** Name of the extension keeping Spotify muted now (the players show "Spotify mirrored by <name>"). */
+    val mirrorBy = MutableStateFlow<String?>(null)
+    private var mirrorTimer: kotlinx.coroutines.Job? = null
+
+    private fun mirrorStarted(id: String) {
+        val name = _registry.value.find(id)?.name ?: id
+        mirrorBy.value = name
+        com.music.spotui.di.LocalPlayer.setMirrorFocus(true)
+        did(Area.PLAYBACK, id, "mirrors Spotify silently")
+        log(id, "mirror on: Spotify plays unheard on this phone")
+        mirrorTimer?.cancel()
+        mirrorTimer = scope.launch {
+            while (mirror.active != null) {
+                delay((mirror.remainingMs() ?: 0L) + 500L)
+                val s = SongPlayer.localSnapshot(); mirrorTick(s.first, s.second)
+            }
+        }
+    }
+
+    private fun mirrorEnded(id: String, reason: String) {
+        mirrorBy.value = null
+        com.music.spotui.di.LocalPlayer.setMirrorFocus(false)
+        mirrorTimer?.cancel()
+        did(Area.PLAYBACK, id, "mirror ended: $reason")
+        log(id, "mirror cleared: $reason")
+        SongPlayer.unmuteMirrorNow()
+    }
+
+    /** The local player's state changed: the mute ends when the track changes, pauses or runs out. */
+    fun mirrorTick(localPlaying: Boolean, trackUri: String?) {
+        val a = mirror.active ?: return
+        mirror.check(localPlaying, trackUri)?.let { mirrorEnded(a.extensionId, it) }
+    }
+
+    /** The local player stopped (or any other reason that is not about one extension). */
+    fun mirrorReset(reason: String) {
+        val a = mirror.active ?: return
+        mirror.disable(a.extensionId)
+        mirrorEnded(a.extensionId, reason)
+    }
+
+    internal fun mirrorStartedBy(id: String) = mirrorStarted(id)
+    internal fun mirrorEndedBy(id: String) = mirrorEnded(id, "the extension turned it off")
+
+    private fun mirrorGone(id: String) { if (mirror.extensionGone(id)) mirrorEnded(id, "the extension stopped, was turned off or removed") }
 
     // ── Who did what, and the playback arbiter ──
 
@@ -615,6 +693,10 @@ object Extensions {
             } catch (e: app.myspoti.extensions.ExtensionBusy) {
                 // It was still busy (a slow lookup before): not its fault, nothing counted.
                 log(id, "${hook.key} skipped: ${e.message}")
+                null
+            } catch (e: app.myspoti.extensions.ExtensionFault) {
+                // Out of memory, stack overflow, engine crash: turned off at once, the app goes on.
+                if (!rt.closed) disable(id, e.message ?: "crashed the sandbox")
                 null
             } catch (e: ExtensionException) {
                 // Stopped meanwhile (updated, turned off): its cut-short call is not counted.
@@ -951,6 +1033,7 @@ object Extensions {
     }
 
     internal fun stop(id: String) {
+        mirrorGone(id)
         runningSha.remove(id)
         runtimes.remove(id)?.close(); ExtensionAuth.cancel(id)
         health.forget(id); _statuses.value = health.inactiveNow()
@@ -1051,12 +1134,28 @@ object Extensions {
         override suspend fun spotify(extensionId: String, call: SpotifyCall): String {
             if (!MyspotiRuntime.isStarted) throw IllegalStateException("no Spotify account")
             // Playback commands go through the arbiter like myspoti.player's; a dropped one answers null.
+            if (call.area == "player" && call.method == "setLocalMute") return setLocalMute(extensionId, call)
             if (call.area == "player" && call.method in ARBITRATED && !arbitrate(extensionId, call.method)) return "null"
             if (call.area == "devices" && call.method != "list" && !arbitrate(extensionId, "transfer")) return "null"
             return dispatcher.execute(call)
         }
 
-        private val ARBITRATED = setOf("play", "pause", "resume", "seek", "next", "previous", "setShuffle", "setRepeat", "skipTo")
+        private val ARBITRATED = setOf("play", "pause", "resume", "seek", "next", "previous", "setShuffle", "setRepeat", "skipTo", "setLocalMute")
+
+        /** The host's side of the mute: only while the local player plays, one extension, rate limited, auto-cleared. */
+        private suspend fun setLocalMute(extensionId: String, call: SpotifyCall): String {
+            val on = kotlinx.serialization.json.Json.parseToJsonElement(call.argsJson).let { it as? kotlinx.serialization.json.JsonArray }
+                ?.firstOrNull()?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content } == "true"
+            if (!on) {
+                if (!Extensions.mirror.disable(extensionId)) return "null"
+                try { return dispatcher.execute(call) } finally { Extensions.mirrorEndedBy(extensionId) }
+            }
+            if (!arbitrate(extensionId, "setLocalMute")) return "null"
+            val (playing, uri, dur) = SongPlayer.localSnapshot3()
+            Extensions.mirror.enable(extensionId, playing, uri, dur)?.let { Extensions.log(extensionId, "refused: $it"); throw IllegalStateException(it) }
+            return try { dispatcher.execute(call).also { Extensions.mirrorStartedBy(extensionId) } }
+            catch (t: Throwable) { Extensions.mirror.disable(extensionId); throw t }
+        }
 
         override fun refresh(extensionId: String, surface: String) { blocksTick.value++ }
 

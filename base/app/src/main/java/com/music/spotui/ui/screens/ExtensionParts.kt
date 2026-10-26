@@ -156,7 +156,7 @@ internal fun rememberPackagePicker(): () -> Unit {
                     }
                 }.getOrNull()
             }
-            if (bytes == null) Toast.makeText(ctx, ctx.getString(R.string.extensions_error, "unreadable file"), Toast.LENGTH_LONG).show()
+            if (bytes == null) Toast.makeText(ctx, ctx.getString(R.string.extensions_unreadable_file), Toast.LENGTH_LONG).show()
             else offer(ctx, bytes, "file")
         }
     }
@@ -200,7 +200,7 @@ internal fun InstallPrompt() {
         },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(stringResource(R.string.extensions_prompt_by, m.author, m.version, m.id), color = AppMuted, fontSize = 12.sp)
+                Text(stringResource(R.string.extensions_prompt_by, authorLine(m.author, p.origin?.repo), m.version, m.id), color = AppMuted, fontSize = 12.sp)
                 Text(stringResource(R.string.extensions_prompt_source, if (p.source == "file") stringResource(R.string.extensions_prompt_source_file) else p.source),
                     color = AppMuted, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (m.description.isNotBlank()) Text(m.description, color = AppText, fontSize = 14.sp, modifier = Modifier.padding(top = 6.dp))

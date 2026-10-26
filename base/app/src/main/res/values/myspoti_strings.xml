@@ -277,6 +277,12 @@
     <string name="settings_check_update_detail">Looks for a newer version and offers to install it</string>
     <string name="settings_update_checking">Checking…</string>
     <string name="settings_update_check_latest">Myspoti is up to date</string>
+    <string name="settings_update_refresh">Check for updates</string>
+    <string name="settings_update_uptodate_now">Up to date (checked just now)</string>
+    <string name="settings_update_last_checked">Last checked: %1$s</string>
+    <string name="settings_update_never">Never checked</string>
+    <string name="settings_update_rate_limited">GitHub is limiting requests right now. Try again in a few minutes.</string>
+    <string name="settings_update_failed">Could not check for updates. Check your connection.</string>
     <!-- A25: stop the queue, keep the songs already downloaded. -->
     <string name="downloads_stop_all_title">Stop all downloads</string>
     <string name="downloads_stop_all_detail">Cancels what is left; songs already downloaded are kept</string>
@@ -519,4 +525,6 @@
     <string name="look_offer_try">Try Immersive</string>
     <string name="look_offer_keep">Keep Classic</string>
     <string name="look_offer_note">You can change it later in Settings > Display and language.</string>
+    <string name="settings_headset_skip_title">Headphone buttons skip 15 s on podcasts</string>
+    <string name="settings_headset_skip_detail">When off, they go to the next or previous episode</string>
 </resources>

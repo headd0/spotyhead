@@ -208,4 +208,9 @@
     <string name="ext_grants_title">Πάντα επιτρεπόμενα</string>
     <string name="ext_grants_note">Αλλαγές στο Spotify που κάνει αυτή η επέκταση χωρίς να ρωτήσει. Ανακαλέστε μία για να ερωτάστε ξανά.</string>
     <string name="ext_grant_revoke">Ανάκληση</string>
+    <string name="extensions_unreadable_file">Δεν ήταν δυνατή η ανάγνωση του αρχείου</string>
+    <string name="ext_welcome_title">Το %1$s εγκαταστάθηκε</string>
+    <string name="ext_welcome_steps">Για να ολοκληρώσετε</string>
+    <string name="ext_welcome_from">Γράφτηκε από την επέκταση.</string>
+    <string name="ext_welcome_ok">Εντάξει</string>
 </resources>

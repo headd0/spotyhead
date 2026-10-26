@@ -50,8 +50,6 @@ import com.music.spotui.ui.theme.AppBackground
 import com.music.spotui.ui.theme.AppMuted
 import com.music.spotui.ui.theme.AppText
 import java.io.ByteArrayInputStream
-import java.net.HttpURLConnection
-import java.net.URL
 
 internal fun extensionPageRoute(id: String) = "extension-page/${android.net.Uri.encode(id)}"
 
@@ -148,20 +146,32 @@ private class SandboxClient(private val hosts: List<String>, private val network
         val url = request.url.toString()
         if (url.startsWith("data:") || url.startsWith("about:")) return null
         if (com.music.spotui.data.DataSaver.active || !PageNetwork.allows(url, request.method, hosts, network, any)) return refused()
+        // OkHttp with the sandbox's Dns: a name that resolves to a local address is never connected to,
+        // and no redirect is followed (a redirect would escape the allowed hosts).
         return runCatching {
-            val c = URL(url).openConnection() as HttpURLConnection
-            c.instanceFollowRedirects = false
-            c.useCaches = false
-            c.connectTimeout = 10_000; c.readTimeout = 15_000
-            c.setRequestProperty("User-Agent", "Myspoti-Extension-Page/1")
-            val status = c.responseCode
-            if (status !in 200..299) { c.disconnect(); return refused() }
-            val type = c.contentType?.substringBefore(';')?.trim() ?: "application/octet-stream"
-            val charset = c.contentType?.substringAfter("charset=", "")?.trim()?.ifBlank { null }
-            if (c.contentLengthLong > 8L * 1024 * 1024) { c.disconnect(); return refused() }
-            val bytes = c.inputStream.use { s -> s.readBytes() }
-            c.disconnect()
-            WebResourceResponse(type, charset, status, "OK", mapOf("Access-Control-Allow-Origin" to "*"), ByteArrayInputStream(bytes))
+            val req = okhttp3.Request.Builder().url(url).header("User-Agent", "Myspoti-Extension-Page/1").get().build()
+            val client = app.myspoti.extensions.SafeNet.client.newBuilder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS).readTimeout(15, java.util.concurrent.TimeUnit.SECONDS).build()
+            client.newCall(req).execute().use { r ->
+                val status = r.code
+                if (status !in 200..299) return refused()
+                val body = r.body
+                val ct = body.contentType()
+                val type = ct?.let { "${it.type}/${it.subtype}" } ?: "application/octet-stream"
+                val charset = ct?.charset()?.name()
+                if (body.contentLength() > 8L * 1024 * 1024) return refused()
+                val out = java.io.ByteArrayOutputStream()
+                val buf = ByteArray(16 * 1024)
+                body.byteStream().use { s ->
+                    while (true) {
+                        val n = s.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        if (out.size() > 8 * 1024 * 1024) return refused()
+                    }
+                }
+                WebResourceResponse(type, charset, status, "OK", mapOf("Access-Control-Allow-Origin" to "*"), ByteArrayInputStream(out.toByteArray()))
+            }
         }.getOrElse { refused() }
     }
 

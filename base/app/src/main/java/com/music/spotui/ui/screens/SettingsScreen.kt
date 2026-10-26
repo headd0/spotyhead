@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -117,6 +118,13 @@ fun SettingsScreen(navController: NavController) {
                 checked = keepPlaying,
                 onChecked = { keepPlaying = it; app.myspoti.host.android.PlaybackService.setKeepsPlayingOnClose(ctx, it) },
             )
+            var headsetSkip by remember { mutableStateOf(app.myspoti.host.android.PlaybackService.skipsOnEpisodes(ctx)) }
+            OptionRow(
+                label = stringResource(R.string.settings_headset_skip_title),
+                detail = stringResource(R.string.settings_headset_skip_detail),
+                checked = headsetSkip,
+                onChecked = { headsetSkip = it; app.myspoti.host.android.PlaybackService.setSkipsOnEpisodes(ctx, it) },
+            )
             // Lyrics: word by word (karaoke) first, or line by line with Spotify's first.
             var wordSync by remember { mutableStateOf(com.music.spotui.data.preferences.isLyricsWordSync(ctx)) }
             OptionRow(
@@ -131,6 +139,7 @@ fun SettingsScreen(navController: NavController) {
                 },
             )
             Divider()
+            SourcesBlock(app.myspoti.extensions.Action.AUDIO_SOURCE, navController)
 
             Section(R.string.settings_section_data)
             OptionRow(
@@ -163,8 +172,10 @@ fun SettingsScreen(navController: NavController) {
             if (tab == 1) {
             Section(R.string.settings_section_downloads)
             DownloadQualityPicker()
-            // Where downloads come from: a download-source extension.
-            Column(
+            // Where downloads come from: the download-source extensions, in the order they are asked.
+            if (com.music.spotui.extensions.Extensions.sources(app.myspoti.extensions.Action.DOWNLOAD_SOURCE).isNotEmpty())
+                SourcesBlock(app.myspoti.extensions.Action.DOWNLOAD_SOURCE, navController)
+            else Column(
                 Modifier.fillMaxWidth().clickable { navController.navigate(com.music.spotui.ui.navigation.Routes.Extensions.route) }
                     .padding(horizontal = 20.dp, vertical = 10.dp),
             ) {
@@ -251,7 +262,6 @@ fun SettingsScreen(navController: NavController) {
                 checked = com.music.spotui.data.preferences.AutoUpdateCheckPref.on,
                 onChecked = { com.music.spotui.data.preferences.AutoUpdateCheckPref.set(ctx, it) },
             )
-            CheckUpdateRow()
             // The hidden Web Player stuck or crashed: rebuild it without leaving the app.
             Column(
                 Modifier.fillMaxWidth().clickable {
@@ -307,6 +317,19 @@ private fun ExtensionSettingsRows(navController: NavController) {
         }
     }
     Divider()
+}
+
+/** The order a source action asks extensions in ([SourceOrderList]); nothing without any such extension. */
+@Composable
+private fun SourcesBlock(action: app.myspoti.extensions.Action, navController: NavController) {
+    val registry by com.music.spotui.extensions.Extensions.registry.collectAsStateWithLifecycle()
+    val audio = action == app.myspoti.extensions.Action.AUDIO_SOURCE
+    if (remember(registry) { com.music.spotui.extensions.Extensions.sources(action).isEmpty() }) return
+    Section(if (audio) R.string.sources_audio_title else R.string.sources_download_title)
+    SourceOrderList(action, spotifyLast = audio, look = SourceLook.Classic, onOpen = { navController.navigate(installedRoute(it)) })
+    Text(stringResource(if (audio) R.string.sources_audio_footer else R.string.sources_download_footer), color = AppMuted, fontSize = 12.sp,
+        modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp))
+    if (audio) Divider()
 }
 
 @Composable
@@ -536,51 +559,43 @@ private fun OptionRow(label: String, detail: String, checked: Boolean,
     }
 }
 
-/** The installed version and, when a newer one is known, the update on offer (its card opens on tap). */
+/**
+ * The installed version with a refresh button: it asks GitHub right now (no cache), shows the
+ * answer and the time of the last check. A newer release opens the update card on tap.
+ */
 @Composable
 private fun AboutRow() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val check = com.music.spotui.data.api.rememberUpdateCheckState(ctx)
     // Also what "Later" put aside: the card in the app offers it again from here.
     val live = com.music.spotui.updateRelease.value
     val known = live ?: remember { com.music.spotui.data.api.UpdateChecker.known(ctx) }
-    Column(
+    Row(
         Modifier.fillMaxWidth()
             .then(if (known != null) Modifier.clickable { com.music.spotui.updateRelease.value = known } else Modifier)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(start = 20.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(stringResource(R.string.settings_about_version, app.myspoti.engine.BuildConfig.VERSION_NAME), color = AppText, fontSize = 16.sp)
-        if (known != null) {
-            Text(stringResource(R.string.settings_update_available, known.version), color = com.music.spotui.ui.theme.AppAccent, fontSize = 14.sp,
-                fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
-            Text(stringResource(R.string.settings_update_available_detail), color = AppMuted, fontSize = 12.sp)
-        }
-    }
-}
-
-/** "Check for updates now": the launch check can be off; this one always asks. */
-@Composable
-private fun CheckUpdateRow() {
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var checking by remember { androidx.compose.runtime.mutableStateOf(false) }
-    androidx.compose.foundation.layout.Column(
-        Modifier.fillMaxWidth().clickable(enabled = !checking) {
-            if (checking) return@clickable
-            checking = true
-            scope.launch {
-                val found = runCatching { com.music.spotui.data.api.UpdateChecker.check(ctx, manual = true) }.getOrNull()
-                checking = false
-                // The card is the app's one update UI: fill it, it shows itself.
-                if (found != null) com.music.spotui.updateRelease.value = found
-                else android.widget.Toast.makeText(ctx, ctx.getString(R.string.settings_update_check_latest), android.widget.Toast.LENGTH_SHORT).show()
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.settings_about_version, app.myspoti.engine.BuildConfig.VERSION_NAME), color = AppText, fontSize = 16.sp)
+            if (known != null) {
+                Text(stringResource(R.string.settings_update_available, known.version), color = com.music.spotui.ui.theme.AppAccent, fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp))
+                Text(stringResource(R.string.settings_update_available_detail), color = AppMuted, fontSize = 12.sp)
             }
-        }.padding(horizontal = 20.dp, vertical = 10.dp),
-    ) {
-        Text(
-            stringResource(if (checking) R.string.settings_update_checking else R.string.settings_check_update_title),
-            color = AppText, fontSize = 16.sp,
-        )
-        Text(stringResource(R.string.settings_check_update_detail), color = AppMuted, fontSize = 12.sp)
+            check.message?.takeIf { known == null || check.isError }?.let {
+                Text(it, color = if (check.isError) androidx.compose.material3.MaterialTheme.colorScheme.error else AppText, fontSize = 13.sp, modifier = Modifier.padding(top = 2.dp))
+            }
+            Text(check.lastCheckedText, color = AppMuted, fontSize = 12.sp)
+        }
+        if (check.checking) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.padding(12.dp).size(24.dp), strokeWidth = 2.dp, color = AppMuted)
+        } else {
+            androidx.compose.material3.IconButton(onClick = { scope.launch { check.run() } }) {
+                androidx.compose.material3.Icon(Icons.Default.Refresh, stringResource(R.string.settings_update_refresh), tint = AppMuted)
+            }
+        }
     }
 }
 

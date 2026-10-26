@@ -208,4 +208,9 @@
     <string name="ext_grants_title">Immer erlaubt</string>
     <string name="ext_grants_note">Spotify-Änderungen, die diese Erweiterung ohne Nachfrage vornimmt. Eine widerrufen, um erneut gefragt zu werden.</string>
     <string name="ext_grant_revoke">Widerrufen</string>
+    <string name="extensions_unreadable_file">Die Datei konnte nicht gelesen werden</string>
+    <string name="ext_welcome_title">%1$s ist installiert</string>
+    <string name="ext_welcome_steps">Zum Abschluss</string>
+    <string name="ext_welcome_from">Von der Erweiterung verfasst.</string>
+    <string name="ext_welcome_ok">Verstanden</string>
 </resources>

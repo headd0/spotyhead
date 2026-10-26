@@ -277,6 +277,12 @@
     <string name="settings_check_update_detail">Cherche une version plus récente et propose de l\'installer</string>
     <string name="settings_update_checking">Vérification…</string>
     <string name="settings_update_check_latest">Myspoti est à jour</string>
+    <string name="settings_update_refresh">Vérifier les mises à jour</string>
+    <string name="settings_update_uptodate_now">À jour (vérifié à l\'instant)</string>
+    <string name="settings_update_last_checked">Dernière vérification : %1$s</string>
+    <string name="settings_update_never">Jamais vérifié</string>
+    <string name="settings_update_rate_limited">GitHub limite les requêtes pour le moment. Réessayez dans quelques minutes.</string>
+    <string name="settings_update_failed">Impossible de vérifier les mises à jour. Vérifiez votre connexion.</string>
     <!-- A25 : arrêter la file, garder les titres déjà téléchargés. -->
     <string name="downloads_stop_all_title">Arrêter tous les téléchargements</string>
     <string name="downloads_stop_all_detail">Annule ce qui reste ; les titres déjà téléchargés sont conservés</string>
@@ -518,4 +524,6 @@
     <string name="look_offer_try">Essayer Immersif</string>
     <string name="look_offer_keep">Garder Classique</string>
     <string name="look_offer_note">Vous pourrez le changer plus tard dans Réglages > Affichage et langue.</string>
+    <string name="settings_headset_skip_title">Boutons du casque : 15 s en podcast</string>
+    <string name="settings_headset_skip_detail">Désactivé : ils passent à l\'épisode suivant ou précédent</string>
 </resources>
