@@ -1,5 +1,6 @@
 package app.myspoti.extensions.cli
 
+import app.myspoti.extensions.Attestation
 import app.myspoti.extensions.AudioQuery
 import app.myspoti.extensions.AudioStream
 import app.myspoti.extensions.Blocks
@@ -102,7 +103,12 @@ private class DesktopHost(
     }
     override fun nowPlaying(): String? = track?.toJson()
     override fun control(extensionId: String, action: String, argument: Long?): Boolean { System.err.println("player: $action ${argument ?: ""}"); return true }
+    override fun attestation(): Attestation = attestation
+    private val attestation = SoftwareAttestation(File(stateDir(), "attest"), ::log)
 }
+
+/** Where the runner keeps what must outlive a run (the software attestation keys): `$MYSPOTI_EXT_HOME`, else `~/.myspoti-ext`. */
+private fun stateDir() = File(System.getenv("MYSPOTI_EXT_HOME") ?: (System.getProperty("user.home") + "/.myspoti-ext"))
 
 /** The Web Player of a Chrome on [cdp] (a port, or its http address), as a Spotify account for extensions. */
 private class Account(cdp: String) : AutoCloseable {

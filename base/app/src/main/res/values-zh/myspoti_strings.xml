@@ -194,6 +194,27 @@
     <string name="setup_battery_detail">息屏后音乐继续播放</string>
     <string name="setup_enable">允许</string>
     <string name="setup_continue">继续</string>
+    <string name="setup_intro_title">Myspoti 如何运作</string>
+    <string name="setup_intro_subtitle">开始前需要知道的三件事。</string>
+    <string name="setup_intro_spotify_title">Spotify，没有广告</string>
+    <string name="setup_intro_spotify_detail">你的账号、歌单和喜欢的歌曲，由 Spotify 自己的网页播放器播放。免费账号也能用。</string>
+    <string name="setup_intro_more_title">比官方应用更多</string>
+    <string name="setup_intro_more_detail">逐字歌词、官方视频、收听统计，还有两种外观可选。</string>
+    <string name="setup_intro_ext_title">扩展，按需使用</string>
+    <string name="setup_intro_ext_detail">社区制作的附加组件：其他音源、下载等等。稍后详细介绍。</string>
+    <string name="setup_ext_title">扩展</string>
+    <string name="setup_ext_subtitle">Myspoti 本身就能用：它播放 Spotify。扩展是社区制作的可选附加组件，能做得更多。</string>
+    <string name="setup_ext_audio_title">其他音源</string>
+    <string name="setup_ext_audio_detail">扩展可以从其他音源播放你的歌曲，音质由它提供。</string>
+    <string name="setup_ext_download_title">下载</string>
+    <string name="setup_ext_download_detail">想离线收听，请安装下载类扩展。歌曲会加密保存在 Myspoti 中。</string>
+    <string name="setup_ext_more_title">更多</string>
+    <string name="setup_ext_more_detail">由作者添加的首页板块、页面和工具。</string>
+    <string name="setup_ext_safe_title">一切由你掌控</string>
+    <string name="setup_ext_safe_detail">安装前，它会显示可以做什么。需要更多权限时会再次询问，你也可以随时移除。</string>
+    <string name="setup_ext_where">在 设置 › 扩展 中查找，来源包括 GitHub、GitLab 和 Codeberg。扩展由其作者编写，而非 Myspoti。</string>
+    <string name="setup_ext_browse">查看扩展</string>
+    <string name="setup_ext_later">稍后</string>
     <string name="local_folders_button">文件夹</string>
     <string name="local_folders_title">文件夹</string>
     <string name="local_folders_detail">选择“本地文件”中显示的文件夹。通讯应用和录音文件夹默认隐藏。</string>
@@ -523,4 +544,8 @@
     <string name="settings_look_title">外观</string>
     <string name="settings_headset_skip_title">耳机按键在播客中快进/快退 15 秒</string>
     <string name="settings_headset_skip_detail">关闭后，切换到下一集或上一集</string>
+    <string name="settings_connect_mirror_title">在 Spotify 上统计扩展的播放</string>
+    <string name="settings_connect_mirror_detail">在后台静音播放该 Spotify 歌曲，使其计入播放次数并可由你的设备控制。会多耗一些流量和电量：不需要时可以关闭。</string>
+    <string name="explicit_badge">E</string>
+    <string name="spotify_plan">Spotify %1$s</string>
 </resources>

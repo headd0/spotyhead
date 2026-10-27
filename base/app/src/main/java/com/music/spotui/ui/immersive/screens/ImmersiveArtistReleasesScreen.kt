@@ -23,6 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -68,7 +69,7 @@ fun ImmersiveArtistReleasesScreen(navController: NavController, artistName: Stri
     val singles = releases.filter { it.type.lowercase() == "single" || it.type.lowercase() == "ep" }
     val untyped = releases.filter { it.type.lowercase() !in setOf("album", "compilation", "single", "ep") }
     val latest = releases.maxByOrNull { it.time }
-    var filter by remember { mutableStateOf("") } // "" | "albums" | "singles" | "featured"
+    var filter by rememberSaveable { mutableStateOf("") } // "" | "albums" | "singles" | "featured"
     val listState = rememberLazyListState()
     val releasesTitle = stringResource(R.string.releases_title)
 

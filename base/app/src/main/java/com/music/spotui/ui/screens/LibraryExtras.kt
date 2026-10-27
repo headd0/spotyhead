@@ -1,5 +1,6 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.theme.AppDestructive
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.AppMuted
@@ -393,7 +394,7 @@ fun FolderScreen(navController: NavController, uri: String, initialName: String)
                 // The folder is gone from the library at once; a refusal brings it back.
                 LibraryFolders.delete(context, uri)
                 navController.navigateUp()
-            }) { Text(stringResource(R.string.actions_picker_delete), color = Color(0xFFF15E6C)) }
+            }) { Text(stringResource(R.string.actions_picker_delete), color = AppDestructive) }
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { deletingFolder = false }) { Text(stringResource(R.string.cancel), color = AppText) } },
     )
@@ -634,7 +635,7 @@ fun LibraryItemSheet(entry: LibraryEntry, onDismiss: () -> Unit, onChanged: () -
         text = { Text(stringResource(R.string.folder_delete_confirm, entry.name), color = AppText) },
         confirmButton = {
             androidx.compose.material3.TextButton(onClick = { deleting = false; act(LibraryEdits.Remove(entry.uri)) { api.library.deleteFolder(entry.uri) } }) {
-                Text(stringResource(R.string.actions_picker_delete), color = Color(0xFFF15E6C))
+                Text(stringResource(R.string.actions_picker_delete), color = AppDestructive)
             }
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { deleting = false }) { Text(stringResource(R.string.cancel), color = AppText) } },

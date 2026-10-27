@@ -113,7 +113,8 @@ fun rememberLiquidGlassActive(): Boolean {
 
 /**
  * The recorded page the Liquid Glass surfaces refract. Provided by the host (App.kt) only while
- * [rememberLiquidGlassActive] is true; null means the bars fall back to Haze's frost. Pages feed
+ * [rememberLiquidGlassActive] is true; null means the bars fall back to the frost (which samples
+ * the same recording through [LocalImmersiveFrostPage] on Android 12+, Haze below). Pages feed
  * it through [immersiveHazeSource], which records the page here as well when it is provided.
  */
 val LocalImmersiveBackdrop = compositionLocalOf<LayerBackdrop?> { null }
@@ -235,6 +236,35 @@ internal fun Modifier.immersiveLiquidGlass(
 }
 
 /**
+ * Haze's frost drawn from the page recording ([LocalImmersiveFrostPage]) instead of Haze: a
+ * [blur] (dp) under [tint], nothing else. It follows a page or tab transition frame by frame like
+ * the Liquid Glass does. Clip it to its shape before this.
+ */
+@Composable
+internal fun Modifier.immersivePageFrost(page: LayerBackdrop, tint: Color, blur: Float): Modifier {
+    val backdrop = remember(page) { PageBackdrop(page) }
+    val effects = remember(blur) {
+        val block: com.music.spotui.ui.immersive.shell.backdrop.BackdropEffectScope.() -> Unit = {
+            blur(blur * density * GLASS_RESOLUTION_SCALE)
+        }
+        block
+    }
+    val surface = remember(tint) {
+        val block: DrawScope.() -> Unit = { drawRect(color = tint, size = size) }
+        block
+    }
+    return drawBackdrop(
+        backdrop = backdrop,
+        shape = { androidx.compose.ui.graphics.RectangleShape },
+        effects = effects,
+        highlight = null,
+        shadow = null,
+        onDrawSurface = surface,
+        backdropScale = GLASS_RESOLUTION_SCALE,
+    )
+}
+
+/**
  * The 0..1 press of a glass surface for [source], on the Immersive press spring (a touch of
  * overshoot on release). Constant 0 under "reduce motion". Read it in the draw phase.
  */
@@ -265,6 +295,7 @@ internal class PageBackdrop(private val page: LayerBackdrop) : Backdrop {
         layerBlock: (GraphicsLayerScope.() -> Unit)?,
     ) {
         val source = page.layerCoordinates
+        page.moves // read: a page sliding or arriving redraws this glass on every frame
         val attached = coordinates != null && source != null && source.isAttached && coordinates.isAttached &&
             !page.isInsideSource(coordinates)
         val sameWindow = attached && source!!.findRoot() === coordinates!!.findRoot()

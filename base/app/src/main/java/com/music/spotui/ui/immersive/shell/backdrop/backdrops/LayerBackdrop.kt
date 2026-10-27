@@ -34,6 +34,12 @@ import com.music.spotui.ui.immersive.shell.backdrop.internal.InverseLayerScope
 
 private val DefaultOnDraw: ContentDrawScope.() -> Unit = { drawContent() }
 
+/**
+ * The opacity a page recording into a backdrop has on screen right now (its fade during a page
+ * transition), provided by the navigation around each page: the glass draws the page with it.
+ */
+val LocalBackdropSourceAlpha = androidx.compose.runtime.staticCompositionLocalOf<() -> Float> { { 1f } }
+
 @Composable
 fun rememberLayerBackdrop(
     graphicsLayer: GraphicsLayer = rememberGraphicsLayer(),
@@ -63,16 +69,28 @@ class LayerBackdrop internal constructor(
         var coordinates: LayoutCoordinates? = null
         /** This source's own recording: every page keeps its own, so two pages in a transition are both sampled. */
         var layer: GraphicsLayer? = null
+        /** Its opacity on screen now ([LocalBackdropSourceAlpha]); read while drawing, so a fade redraws the glass. */
+        var alpha: () -> Float = { 1f }
     }
     internal val sources = ArrayList<Source>()
 
+    /**
+     * Bumped whenever a page records in, leaves or moves. The glass reads it while drawing: a page
+     * sliding in does not redraw its content, and the same LayoutCoordinates object would not
+     * invalidate [layerCoordinates], so without it the glass kept the page's old place until the
+     * transition ended, then jumped.
+     */
+    internal var moves by androidx.compose.runtime.mutableIntStateOf(0)
+
     internal fun publish(source: Source) {
         if (sources.lastOrNull() === source) layerCoordinates = source.coordinates
+        moves++
     }
 
     internal fun retire(source: Source) {
         sources.remove(source)
         layerCoordinates = sources.lastOrNull()?.coordinates
+        moves++
     }
 
     private var inverseLayerScope: InverseLayerScope? = null
@@ -103,8 +121,19 @@ class LayerBackdrop internal constructor(
                 continue
             }
             if (!c.isAttached || layer.size.width <= 0) continue
+            val a = s.alpha().coerceIn(0f, 1f)
+            if (a <= 0f) continue
             val o = offsetOf(c)
-            withTransform({ translate(-o.x, -o.y) }) { drawLayer(layer) }
+            withTransform({ translate(-o.x, -o.y) }) {
+                if (a >= 1f) drawLayer(layer)
+                else drawContext.canvas.let { canvas ->
+                    // The page's fade, as on screen (the recording itself is always opaque).
+                    canvas.saveLayer(androidx.compose.ui.geometry.Rect(Offset.Zero, layer.size.let { androidx.compose.ui.geometry.Size(it.width.toFloat(), it.height.toFloat()) }),
+                        androidx.compose.ui.graphics.Paint().apply { alpha = a })
+                    drawLayer(layer)
+                    canvas.restore()
+                }
+            }
         }
     }
 
@@ -114,6 +143,7 @@ class LayerBackdrop internal constructor(
         layerBlock: (GraphicsLayerScope.() -> Unit)?
     ) {
         val coordinates = coordinates ?: return
+        moves // read: a page moving or arriving redraws the glass
         withTransform({
             if (layerBlock != null) {
                 with(obtainInverseLayerScope()) { inverseTransform(density, layerBlock) }

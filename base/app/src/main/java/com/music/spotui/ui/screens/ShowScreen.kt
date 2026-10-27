@@ -1,5 +1,6 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.components.wideClickable
 import com.music.spotui.ui.theme.headerTint
 import com.music.spotui.ui.theme.AppText
 
@@ -179,12 +180,7 @@ fun ShowScreen(navController: NavController, showId: String, showName: String = 
             }
             if (pageState is Response.Loading && page == null) item { Loader() }
             if (pageState is Response.Error && items.isEmpty()) item {
-                Text(
-                    (pageState as Response.Error).error,
-                    color = AppText.copy(alpha = 0.7f),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(16.dp),
-                )
+                com.music.spotui.ui.components.ErrorRetry(stringResource(R.string.page_load_failed)) { vm.loadShow(showId) }
             }
             if (tab == 1) item { About(show) }
             if (tab == 0 && page != null && items.isEmpty() && pageState !is Response.Loading) item {
@@ -233,10 +229,10 @@ private fun Header(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .padding(12.dp)
+                .wideClickable { navController.navigateUp() }
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.35f))
-                .clickable { navController.navigateUp() },
+                .background(Color.Black.copy(alpha = 0.35f)),
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = Color.White)
         }

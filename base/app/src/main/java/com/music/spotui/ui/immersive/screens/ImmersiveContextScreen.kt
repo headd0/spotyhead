@@ -67,6 +67,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
@@ -169,7 +170,7 @@ fun ImmersiveContextScreen(navController: NavController, type: String, id: Strin
     remember(type, id) { vm.load(type, id) }
     val resp by vm.page.collectAsState()
     BoxWithConstraints(Modifier.fillMaxSize().background(Immersive.Page)) {
-        val sleeve = (maxWidth * SLEEVE_FRACTION).coerceAtMost(maxHeight * SLEEVE_MAX_HEIGHT)
+        val sleeve = albumSleeve(maxWidth, maxHeight)
         when (val r = resp) {
             is Response.Loading -> ContextLoading(navController, sleeve)
             is Response.Error -> {
@@ -188,9 +189,12 @@ fun ImmersiveContextScreen(navController: NavController, type: String, id: Strin
     }
 }
 
+/** The sleeve's side on a page of this size. */
+internal fun albumSleeve(maxWidth: Dp, maxHeight: Dp): Dp = (maxWidth * SLEEVE_FRACTION).coerceAtMost(maxHeight * SLEEVE_MAX_HEIGHT)
+
 /** Nothing is known of the page yet: the sleeve and the track list stand as shimmer. */
 @Composable
-private fun ContextLoading(navController: NavController, sleeve: Dp) {
+internal fun ContextLoading(navController: NavController, sleeve: Dp) {
     val listState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -237,8 +241,8 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
 
     var menuSong by remember { mutableStateOf<SongsModel?>(null) }
     // "Find in Liked Songs / in playlist", opened from the top bar.
-    var find by remember { mutableStateOf("") }
-    var finding by remember { mutableStateOf(false) }
+    var find by rememberSaveable { mutableStateOf("") }
+    var finding by rememberSaveable { mutableStateOf(false) }
     // "Sort by" for the list, kept per list (also after leaving it or restarting the app).
     var sort by remember(p.uri) { mutableStateOf(TrackOrder.load(context, p.uri)) }
     var sortMenu by remember { mutableStateOf(false) }
@@ -277,7 +281,7 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
                     write = { app.myspoti.host.android.MyspotiRuntime.api.playlists.leave(p.uri) },
                     onDone = { ok -> if (ok) com.music.spotui.data.api.LibraryEdits.reloadSoon() })
                 navController.navigateUp()
-            }) { Text(stringResource(R.string.playlist_leave_button), color = Color(0xFFFF453A)) }
+            }) { Text(stringResource(R.string.playlist_leave_button), color = Immersive.Destructive) }
         },
         dismissButton = {
             androidx.compose.material3.TextButton(onClick = { leaveAsk = false }) { Text(stringResource(R.string.cancel), color = Immersive.Text) }
@@ -393,14 +397,6 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
         p.tracks.isNotEmpty() -> vm.play(p, if (shuffle) p.tracks.random() else sort.apply(p.tracks).first(), sort)
         else -> Unit
     }
-    fun onShuffle() {
-        if (p.tracks.isEmpty()) return
-        if (SmartShuffle.on.value == p.uri) vm.playSmart(p, null)
-        else {
-            playerVm.updateShuffleState(true)
-            vm.play(p, p.tracks.random(), sort)
-        }
-    }
     fun toggleSmart() {
         if (smart) {
             SmartShuffle.on.value = null
@@ -409,6 +405,21 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
             SmartShuffle.on.value = p.uri
             Toast.makeText(context, context.getString(R.string.immersive_detail_smart_shuffle_on), Toast.LENGTH_SHORT).show()
             if (isThisContext) vm.playSmart(p, p.tracks.firstOrNull { it.id == currentSongId })
+        }
+    }
+    // What the Shuffle pill does: start the list shuffled, or, while it plays, step through
+    // shuffle → smart shuffle (playlists, Liked Songs) → off, as the Classic shuffle icon does.
+    fun onShuffle() {
+        if (p.tracks.isEmpty()) return
+        when {
+            !isThisContext && smart -> vm.playSmart(p, null)
+            !isThisContext -> {
+                playerVm.updateShuffleState(true)
+                vm.play(p, p.tracks.random(), sort)
+            }
+            smart -> { SmartShuffle.on.value = null; playerVm.updateShuffleState(false) }
+            shuffle && SmartShuffle.canPlay(p.uri) -> toggleSmart()
+            else -> playerVm.updateShuffleState(!shuffle)
         }
     }
 
@@ -448,6 +459,7 @@ private fun ImmersiveContextContent(navController: NavController, vm: ContextVie
                     playing = playing,
                     saved = SongPlayer.library[p.uri] ?: contextSaved,
                     smart = smart,
+                    shuffled = isThisContext && (shuffle || smart),
                     onPlay = ::onPlay,
                     onShuffle = ::onShuffle,
                     onToggleSaved = { vm.toggleContextSaved(p) },
@@ -622,6 +634,7 @@ private fun ContextHeader(
     playing: Boolean,
     saved: Boolean,
     smart: Boolean,
+    shuffled: Boolean,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
     onToggleSaved: () -> Unit,
@@ -748,8 +761,10 @@ private fun ContextHeader(
                 )
                 ImmersiveButton(
                     text = stringResource(R.string.immersive_shell_shuffle),
-                    icon = Icons.Rounded.Shuffle,
+                    icon = if (shuffled && smart) Icons.Rounded.AutoAwesome else Icons.Rounded.Shuffle,
                     onClick = onShuffle,
+                    // Lit while this list plays shuffled: a tap then steps to smart shuffle or off.
+                    filled = shuffled,
                     modifier = Modifier.weight(1f),
                 )
             }

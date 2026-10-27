@@ -173,6 +173,27 @@
     <string name="setup_battery_detail">A música continua a tocar com o ecrã desligado</string>
     <string name="setup_enable">Permitir</string>
     <string name="setup_continue">Continuar</string>
+    <string name="setup_intro_title">Como o Myspoti funciona</string>
+    <string name="setup_intro_subtitle">Três coisas para saber antes de começar.</string>
+    <string name="setup_intro_spotify_title">Spotify, sem anúncios</string>
+    <string name="setup_intro_spotify_detail">Sua conta, suas playlists e curtidas, tocadas pelo próprio player web do Spotify. Contas gratuitas também funcionam.</string>
+    <string name="setup_intro_more_title">Mais que o app oficial</string>
+    <string name="setup_intro_more_detail">Letras palavra por palavra, clipes oficiais, estatísticas de audição e dois visuais para escolher.</string>
+    <string name="setup_intro_ext_title">Extensões, se você quiser</string>
+    <string name="setup_intro_ext_detail">Complementos feitos pela comunidade: outras fontes de áudio, downloads e mais. Já falamos delas.</string>
+    <string name="setup_ext_title">Extensões</string>
+    <string name="setup_ext_subtitle">O Myspoti funciona do jeito que é: ele toca o Spotify. Extensões são complementos opcionais, feitos pela comunidade, que fazem mais.</string>
+    <string name="setup_ext_audio_title">Outras fontes de áudio</string>
+    <string name="setup_ext_audio_detail">Uma extensão pode tocar suas músicas de outra fonte, na qualidade que ela oferece.</string>
+    <string name="setup_ext_download_title">Downloads</string>
+    <string name="setup_ext_download_detail">Para ouvir offline, instale uma extensão de download. As músicas ficam criptografadas no Myspoti.</string>
+    <string name="setup_ext_more_title">E mais</string>
+    <string name="setup_ext_more_detail">Seções da página inicial, páginas e ferramentas adicionadas pelos autores.</string>
+    <string name="setup_ext_safe_title">Você no controle</string>
+    <string name="setup_ext_safe_detail">Antes de instalar, ela mostra o que pode fazer. Pede de novo para qualquer coisa a mais, e você pode removê-la quando quiser.</string>
+    <string name="setup_ext_where">Encontre-as em Configurações, Extensões, no GitHub, GitLab e Codeberg. Elas são escritas pelos autores, não pelo Myspoti.</string>
+    <string name="setup_ext_browse">Ver as extensões</string>
+    <string name="setup_ext_later">Depois</string>
     <string name="local_folders_button">Pastas</string>
     <string name="local_folders_title">Pastas</string>
     <string name="local_folders_detail">Escolhe as pastas mostradas em Ficheiros locais. As apps de mensagens e as gravações começam ocultas.</string>
@@ -521,4 +542,8 @@
     <string name="look_offer_note">Você pode mudar depois em Configurações &gt; Tela e idioma.</string>
     <string name="settings_headset_skip_title">Botões dos auscultadores: 15 s nos podcasts</string>
     <string name="settings_headset_skip_detail">Desativado: passam ao episódio seguinte ou anterior</string>
+    <string name="settings_connect_mirror_title">Contar no Spotify o que tocas com extensões</string>
+    <string name="settings_connect_mirror_detail">Reproduz a música do Spotify sem som em segundo plano, para que conte e os seus dispositivos a possam controlar. Usa um pouco mais de dados e bateria: desative se não precisar.</string>
+    <string name="explicit_badge">E</string>
+    <string name="spotify_plan">Spotify %1$s</string>
 </resources>

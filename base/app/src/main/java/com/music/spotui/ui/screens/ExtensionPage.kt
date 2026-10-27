@@ -75,6 +75,14 @@ fun ExtensionPageScreen(navController: NavController, id: String) {
     val network = Action.NETWORK.key in granted
     val any = Action.NETWORK_ANY in granted
 
+    if (com.music.spotui.ui.navigation.isImmersive()) {
+        com.music.spotui.ui.immersive.pages.ImmersiveExtensionPageFrame(
+            title = loaded?.getOrNull()?.title ?: e?.name ?: id,
+            subtitle = stringResource(R.string.ext_from, e?.name ?: id),
+            onBack = { navController.popBackStack() },
+        ) { ExtensionPageBody(id, loaded, hosts, network, any, shield.isNotEmpty()) }
+        return
+    }
     Column(Modifier.fillMaxSize().background(AppBackground).statusBarsPadding()) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(4.dp)) {
             IconButton(onClick = { navController.popBackStack() }) {
@@ -86,45 +94,58 @@ fun ExtensionPageScreen(navController: NavController, id: String) {
             }
         }
         Box(Modifier.fillMaxWidth().weight(1f).navigationBarsPadding()) {
-            val page = loaded?.getOrNull()
-            when {
-                loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = AppAccent)
-                page == null -> Text(stringResource(R.string.ext_page_failed), color = AppMuted, modifier = Modifier.padding(20.dp))
-                else -> {
-                    val html = remember(page) { PageNetwork.wrap(page.html, PageNetwork.csp(hosts, network, any)) }
-                    val web = remember { arrayOfNulls<WebView>(1) }
-                    AndroidView(
-                        modifier = Modifier.fillMaxSize(),
-                        factory = { ctx ->
-                            WebView(ctx).apply {
-                                web[0] = this
-                                settings.javaScriptEnabled = true
-                                settings.allowFileAccess = false
-                                settings.allowContentAccess = false
-                                settings.domStorageEnabled = false
-                                settings.setGeolocationEnabled(false)
-                                settings.javaScriptCanOpenWindowsAutomatically = false
-                                settings.setSupportMultipleWindows(false)
-                                settings.mediaPlaybackRequiresUserGesture = true
-                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                settings.cacheMode = WebSettings.LOAD_NO_CACHE
-                                CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
-                                setBackgroundColor(android.graphics.Color.BLACK)
-                                webViewClient = SandboxClient(hosts, network, any)
-                                addJavascriptInterface(PageBridge(id), "MyspotiPage")
-                                Extensions.attachPage(id) { json -> evaluateJavascript("window.dispatchEvent(new MessageEvent('message', { data: $json }));", null) }
-                                loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
-                            }
-                        },
-                        update = { wv ->
-                            if (shield.isNotEmpty()) { wv.onPause(); wv.visibility = View.INVISIBLE } else { wv.onResume(); wv.visibility = View.VISIBLE }
-                        },
-                    )
-                    DisposableEffect(id) {
-                        onDispose {
-                            Extensions.attachPage(id, null)
-                            web[0]?.destroy()
+            ExtensionPageBody(id, loaded, hosts, network, any, shield.isNotEmpty())
+        }
+    }
+}
+
+/**
+ * What an extension's page shows in the space under its header: a spinner while it loads, the
+ * failure, or the sandboxed WebView (hidden and paused while [shielded], a protected surface is on
+ * screen). The same in both looks, which only differ in the frame around it.
+ */
+@SuppressLint("SetJavaScriptEnabled", "JavascriptInterface")
+@Composable
+internal fun ExtensionPageBody(id: String, loaded: Result<PageContent?>?, hosts: List<String>, network: Boolean, any: Boolean, shielded: Boolean) {
+    Box(Modifier.fillMaxSize()) {
+        val page = loaded?.getOrNull()
+        when {
+            loaded == null -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = AppAccent)
+            page == null -> Text(stringResource(R.string.ext_page_failed), color = AppMuted, modifier = Modifier.padding(20.dp))
+            else -> {
+                val html = remember(page) { PageNetwork.wrap(page.html, PageNetwork.csp(hosts, network, any)) }
+                val web = remember { arrayOfNulls<WebView>(1) }
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            web[0] = this
+                            settings.javaScriptEnabled = true
+                            settings.allowFileAccess = false
+                            settings.allowContentAccess = false
+                            settings.domStorageEnabled = false
+                            settings.setGeolocationEnabled(false)
+                            settings.javaScriptCanOpenWindowsAutomatically = false
+                            settings.setSupportMultipleWindows(false)
+                            settings.mediaPlaybackRequiresUserGesture = true
+                            settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                            settings.cacheMode = WebSettings.LOAD_NO_CACHE
+                            CookieManager.getInstance().setAcceptThirdPartyCookies(this, false)
+                            setBackgroundColor(android.graphics.Color.BLACK)
+                            webViewClient = SandboxClient(hosts, network, any)
+                            addJavascriptInterface(PageBridge(id), "MyspotiPage")
+                            Extensions.attachPage(id) { json -> evaluateJavascript("window.dispatchEvent(new MessageEvent('message', { data: $json }));", null) }
+                            loadDataWithBaseURL(null, html, "text/html", "utf-8", null)
                         }
+                    },
+                    update = { wv ->
+                        if (shielded) { wv.onPause(); wv.visibility = View.INVISIBLE } else { wv.onResume(); wv.visibility = View.VISIBLE }
+                    },
+                )
+                DisposableEffect(id) {
+                    onDispose {
+                        Extensions.attachPage(id, null)
+                        web[0]?.destroy()
                     }
                 }
             }

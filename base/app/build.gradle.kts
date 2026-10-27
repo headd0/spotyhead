@@ -22,8 +22,9 @@ android {
     // signed with the first key, as "Myspoti Beta"; releases are "app.myspoti.stable",
     // signed with their own key, as "Myspoti".
     // Local builds (no version given) are on the beta side, like the phone test builds.
-    val version = (findProperty("appVersionName") as String?) ?: "2.0.1"
-    val beta = findProperty("appVersionName") == null || version.contains("-")
+    val version = (findProperty("appVersionName") as String?) ?: "2.1.0"
+    // "-beta" as in UpdateChecker.isBeta, one predicate for the app id, the label and the log stripping.
+    val beta = findProperty("appVersionName") == null || version.contains("-beta")
     defaultConfig {
         applicationId = if (beta) "app.myspoti" else "app.myspoti.stable"
         manifestPlaceholders["appLabel"] = if (beta) "Myspoti Beta" else "Myspoti"
@@ -52,6 +53,11 @@ android {
     // Release key from the CI secrets (env), else keystore/keystore.properties.
     val envStore = System.getenv("MYSPOTI_KEYSTORE")
     val hasReleaseKey = envStore != null || keystorePropertiesFile.exists()
+    // A stable release (a version without "-beta", given by CI) is never signed with the debug key:
+    // without the release key the build stops. Local builds (no version) and -PoverDev are not stable releases.
+    val stableRelease = !beta && findProperty("overDev") == null
+    if (stableRelease && !hasReleaseKey && gradle.startParameter.taskNames.any { Regex("(assemble|bundle|package|install)Release").containsMatchIn(it) })
+        throw GradleException("A stable release needs the release key: set MYSPOTI_KEYSTORE (CI) or add keystore/keystore.properties.")
     signingConfigs {
         create("release") {
             if (envStore != null) {

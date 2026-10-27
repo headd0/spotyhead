@@ -3,6 +3,7 @@ package com.music.spotui.ui.components
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.AppMuted
+import com.music.spotui.ui.theme.AppAccent
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -98,9 +99,9 @@ private fun <T> QualityGroup(
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 RadioButton(selected = on, onClick = null, modifier = Modifier.padding(horizontal = 8.dp),
-                    colors = RadioButtonDefaults.colors(selectedColor = Color(0xFF1DB954), unselectedColor = AppMuted))
+                    colors = RadioButtonDefaults.colors(selectedColor = AppAccent, unselectedColor = AppMuted))
                 Column(Modifier.weight(1f).padding(end = 12.dp)) {
-                    Text(stringResource(o.label), color = if (on) Color(0xFF1DB954) else AppText, fontSize = 16.sp)
+                    Text(stringResource(o.label), color = if (on) AppAccent else AppText, fontSize = 16.sp)
                     Text(stringResource(o.detail), color = AppMuted, fontSize = 12.sp)
                 }
             }

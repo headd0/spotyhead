@@ -5,6 +5,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.nullable
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -85,6 +86,10 @@ class ExtensionRuntime(
         /** The biggest answer a Spotify call gives the script. */
         val spotifyResultChars: Int = 2 * 1024 * 1024,
         val storageChars: Int = 512 * 1024,
+        /** `myspoti.attest.sign` calls. */
+        val attestSignsPerMinute: Int = 120,
+        /** `myspoti.attest.enroll` calls: a new key each time, and a hardware keystore that is slow to make them. */
+        val attestEnrollsPerHour: Int = 5,
     )
 
     private val id = manifest.id
@@ -96,6 +101,8 @@ class ExtensionRuntime(
     private val requestTimes = ArrayDeque<Long>()
     private val spotifyTimes = ArrayDeque<Long>()
     private val notifyTimes = ArrayDeque<Long>()
+    private val attestSignTimes = ArrayDeque<Long>()
+    private val attestEnrollTimes = ArrayDeque<Long>()
     /** Time spent waiting for the user in the run on the thread now: it is not the script's time. */
     @Volatile private var activePause: Pause? = null
 
@@ -295,7 +302,7 @@ class ExtensionRuntime(
             ScriptableObject.putProperty(o, name, LambdaFunction(s, name, length) { _, _, _, args -> fn(args) ?: Undefined.instance })
         fun str(args: Array<Any?>, i: Int): String = args.getOrNull(i)?.takeUnless { it is Undefined }?.let { Context.toString(it) }.orEmpty()
 
-        def("info", 0) { ExtJson.encodeToString(Info.serializer(), Info(manifest.id, manifest.name, manifest.version, has(Action.PLAYBACK_MIRROR))) }
+        def("info", 0) { ExtJson.encodeToString(Info.serializer(), Info(manifest.id, manifest.name, manifest.version, has(Action.PLAYBACK_MIRROR), has(Action.ATTEST))) }
         def("mayProvide", 1) { a ->
             val key = str(a, 0)
             val hook = Hook.of(key) ?: throw error("unknown hook \"$key\" (known: ${Hook.entries.joinToString { it.key }})")
@@ -364,6 +371,10 @@ class ExtensionRuntime(
             val request = try { AuthRequest(str(a, 0), str(a, 1), hidden = a.getOrNull(2) == true).checked() } catch (e: IllegalArgumentException) { throw error(e.message ?: "auth.open: refused") }
             runCatching { host.openAuth(id, request) }.getOrElse { throw error("auth.open: ${it.message ?: it.javaClass.simpleName}") }
         }
+        def("attestEnroll", 1) { a -> attestEnroll(str(a, 0)) }
+        def("attestPublicKey", 0) { attest().let { at -> ExtJson.encodeToString(String.serializer().nullable, at.publicKey(id)) } }
+        def("attestSign", 1) { a -> attestSign(str(a, 0)) }
+        def("attestReset", 0) { attest().reset(id); null }
         def("whenOnline", 0) { need(Action.NETWORK); host.whenOnline(id); null }
         def("log", 1) { a -> host.log(id, str(a, 0).take(2_000)); null }
         def("util", 2) { a -> util(str(a, 0), str(a, 1)) }
@@ -377,6 +388,31 @@ class ExtensionRuntime(
             if (a in declared) "the user did not grant ${a.key}"
             else "${a.key} is not in this extension's manifest (actions)",
         )
+    }
+
+    /** The keys of `myspoti.attest`: the right is checked, and the host must have some. */
+    private fun attest(): Attestation {
+        need(Action.ATTEST)
+        return host.attestation() ?: throw error("attest: this app cannot make hardware-backed keys here")
+    }
+
+    /** `attest.enroll(challenge)`: a new key, at most [Limits.attestEnrollsPerHour] an hour. */
+    private fun attestEnroll(challenge: String): String {
+        val at = attest()
+        val bytes = challenge.toByteArray()
+        if (bytes.isEmpty() || bytes.size > Attestation.MAX_CHALLENGE_BYTES) throw error("attest.enroll: the challenge is 1 to ${Attestation.MAX_CHALLENGE_BYTES} bytes")
+        if (!allowRequest(attestEnrollTimes, limits.attestEnrollsPerHour, 3_600_000L)) throw error("attest.enroll: at most ${limits.attestEnrollsPerHour} an hour")
+        val enrollment = runCatching { at.enroll(id, bytes) }.getOrElse { throw error("attest.enroll: ${it.message ?: it.javaClass.simpleName}") }
+        return ExtJson.encodeToString(Enrollment.serializer(), enrollment)
+    }
+
+    /** `attest.sign(text)`: the signature of the UTF-8 text, [Limits.attestSignsPerMinute] a minute. */
+    private fun attestSign(text: String): String {
+        val at = attest()
+        val bytes = text.toByteArray()
+        if (bytes.size > Attestation.MAX_SIGN_BYTES) throw error("attest.sign: text over ${Attestation.MAX_SIGN_BYTES / 1024} KB")
+        throttle(attestSignTimes, limits.attestSignsPerMinute, "attest.sign calls")
+        return runCatching { at.sign(id, bytes) }.getOrElse { throw error("attest.sign: ${it.message ?: it.javaClass.simpleName}") }
     }
 
     private fun http(json: String): String {
@@ -562,7 +598,7 @@ class ExtensionRuntime(
     }
 
     @kotlinx.serialization.Serializable
-    private data class Info(val id: String, val name: String, val version: String, val mirror: Boolean = false)
+    private data class Info(val id: String, val name: String, val version: String, val mirror: Boolean = false, val attest: Boolean = false)
 
     /** Thrown inside the script's thread when its time is up; not catchable by the script. */
     private class TimeLimit : Error("time limit")

@@ -165,7 +165,7 @@ fun ImmersiveSearchScreen(navController: NavController) {
     val playSong: (SongsModel) -> Unit = { song ->
         // A radio from the tapped track (queue = this song + recommendations), not the list.
         vm.startRadioFromSong(song)
-        SongPlayer.playSong(song.url, context)
+        SongPlayer.playSong(song.url, context, songs = listOf(song), alone = true)
         vm.updateSongState(song.coverUri, song.title, song.singer, true, song.id, 0, song.album)
     }
 
@@ -312,7 +312,7 @@ private fun openRecent(item: RecentItem, navController: NavController, vm: Searc
                 durationMs = item.durationMs,
             )
             vm.startRadioFromSong(song)
-            SongPlayer.playSong(song.url, context)
+            SongPlayer.playSong(song.url, context, songs = listOf(song), alone = true)
             vm.updateSongState(song.coverUri, song.title, song.singer, true, song.id, 0, song.album)
         }
         "artist" -> navController.navigate(artistRoute(item.name, item.key.takeIf { it != item.name }.orEmpty()))

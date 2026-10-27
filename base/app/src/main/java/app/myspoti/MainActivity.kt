@@ -186,7 +186,8 @@ class MainActivity : AppCompatActivity() {
 
     // The clip player follows the app on screen: paused with its side jobs in the background.
     override fun onStart() {
-        app.myspoti.host.android.MainThreadWatch.start()
+        // Beta and dev builds only, like the log button: a stable release has no freeze reports to read.
+        if (com.music.spotui.data.api.UpdateChecker.isBeta || app.myspoti.engine.BuildConfig.DEBUG) app.myspoti.host.android.MainThreadWatch.start()
         super.onStart()
         com.music.spotui.video.MusicVideoController.onForeground()
         // Asked for over adb (TestControlReceiver's "screenon"): One UI ignores the huge

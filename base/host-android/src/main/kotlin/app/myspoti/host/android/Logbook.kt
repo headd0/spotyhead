@@ -40,6 +40,12 @@ object Logbook {
         }
     }
 
+    /**
+     * [url] without its query string and fragment: they carry tokens, ids and search terms, and a
+     * report is handed to other people. For every URL put in a log line.
+     */
+    fun noQuery(url: String): String = url.substringBefore('#').substringBefore('?')
+
     /** When each [logEvery] key last wrote, and how many lines it held back since. */
     private val every = HashMap<String, LongArray>()
 

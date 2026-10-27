@@ -331,6 +331,18 @@ object LocalPlayer {
             else { com.music.spotui.extensions.Extensions.skipAsked("backward"); it.seekToPreviousMediaItem() }
         }
     }
+    /** Back to the song before the current one, wherever this one is (a previous asked on another device). */
+    fun previousItem() {
+        endFade()
+        exo?.let { if (it.hasPreviousMediaItem()) { com.music.spotui.extensions.Extensions.skipAsked("backward"); it.seekToPreviousMediaItem() } }
+    }
+
+    /** The Spotify ids of the songs before and after the current one ("" when none or no id). */
+    fun neighbourIds(): Pair<String, String> {
+        val i = exo?.currentMediaItemIndex ?: return "" to ""
+        return spotifyId(tracks.getOrNull(i - 1)) to spotifyId(tracks.getOrNull(i + 1))
+    }
+
     fun seekTo(ms: Long) {
         endFade()
         exo?.let { p ->
@@ -530,6 +542,8 @@ object LocalPlayer {
             ?: t.uri.takeIf { it.scheme == com.music.spotui.extensions.ExtensionAudio.SCHEME }?.lastPathSegment.orEmpty()
 
     fun isPlaying() = exo?.isPlaying == true
+    /** Waiting for audio (a stream that does not keep up, a seek still loading). */
+    fun isBuffering() = exo?.playbackState == Player.STATE_BUFFERING
     /** For the diagnostic (`status`): whether it is to play, and its state (idle, buffering, ready, ended). */
     fun playWhenReady() = exo?.playWhenReady == true
     fun playbackState(): String = exo?.let { stateName(it.playbackState) } ?: "none"

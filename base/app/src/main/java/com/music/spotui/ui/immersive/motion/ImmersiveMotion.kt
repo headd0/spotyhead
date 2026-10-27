@@ -6,8 +6,6 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.lazy.LazyItemScope
@@ -16,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.IntOffset
 import androidx.navigation.NavBackStackEntry
 import com.music.spotui.ui.look.rememberReduceMotion
+import com.music.spotui.ui.navigation.Routes
 
 /**
  * The motion constants of the Immersive look in one place, so screens share one feel instead of
@@ -45,6 +44,9 @@ object ImmersiveMotion {
     const val LONG_MS = 420
     const val TINT_MS = 600
 
+    /** A sheet warming into its cover's colours the first time it is seen: quicker than the player's [TINT_MS], as a sheet is brief. */
+    const val SHEET_TINT_MS = 400
+
     /** Press feedback (scale under the finger): stiff and fully damped, it never wobbles. */
     fun <T> pressSpring() = spring<T>(stiffness = 900f)
 
@@ -72,27 +74,54 @@ object ImmersiveMotion {
     private const val PAGE_MS = 380
 
     /**
-     * Enter/exit specs for `NavHost` in the Immersive look. With "reduce motion" on they are a
-     * short fade. Pass them as `enterTransition`, `exitTransition`, `popEnterTransition`,
-     * `popExitTransition`.
+     * Enter/exit specs for `NavHost` in the Immersive look. Switching between the three tabs is
+     * a short fade, as in Classic (tabs are siblings, not a stack); with "reduce motion" every
+     * page change is that short fade. Pass them as `enterTransition`, `exitTransition`,
+     * `popEnterTransition`, `popExitTransition`.
+     */
+    /**
+     * Page transitions: the slides here, the fades run by the page itself ([PageFade], see
+     * MyNavHost's `page`), so the Liquid Glass sampling a page fades with it frame by frame
+     * instead of jumping once the transition is over.
      */
     object Pages {
+        private val tabRoutes = setOf(Routes.Home.route, Routes.Search.route, Routes.Library.route)
+
+        private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwitch() =
+            initialState.destination.route in tabRoutes && targetState.destination.route in tabRoutes
+
         fun enter(reduce: Boolean): AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-            if (reduce) fadeIn(tween(FADE_MS)) else slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset(1, 1))) { it } +
-                fadeIn(tween(PAGE_MS / 2))
+            val still = reduce || isTabSwitch()
+            PageFade.enterMs = if (still) FADE_MS else PAGE_MS / 2
+            if (still) EnterTransition.None else slideInHorizontally(spring(stiffness = Spring.StiffnessMediumLow, visibilityThreshold = IntOffset(1, 1))) { it }
         }
 
         fun exit(reduce: Boolean): AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-            if (reduce) fadeOut(tween(FADE_MS)) else slideOutHorizontally(tween(PAGE_MS)) { -it / 3 } + fadeOut(tween(PAGE_MS))
+            val still = reduce || isTabSwitch()
+            PageFade.exitMs = if (still) FADE_MS else PAGE_MS
+            if (still) ExitTransition.None else slideOutHorizontally(tween(PAGE_MS)) { -it / 3 }
         }
 
         fun popEnter(reduce: Boolean): AnimatedContentTransitionScope<NavBackStackEntry>.() -> EnterTransition = {
-            if (reduce) fadeIn(tween(FADE_MS)) else slideInHorizontally(tween(PAGE_MS)) { -it / 3 } + fadeIn(tween(PAGE_MS))
+            val still = reduce || isTabSwitch()
+            PageFade.enterMs = if (still) FADE_MS else PAGE_MS
+            if (still) EnterTransition.None else slideInHorizontally(tween(PAGE_MS)) { -it / 3 }
         }
 
         fun popExit(reduce: Boolean): AnimatedContentTransitionScope<NavBackStackEntry>.() -> ExitTransition = {
-            if (reduce) fadeOut(tween(FADE_MS)) else slideOutHorizontally(tween(PAGE_MS)) { it } + fadeOut(tween(PAGE_MS / 2))
+            val still = reduce || isTabSwitch()
+            PageFade.exitMs = if (still) FADE_MS else PAGE_MS / 2
+            if (still) ExitTransition.None else slideOutHorizontally(tween(PAGE_MS)) { it }
         }
+    }
+
+    /**
+     * How long the page coming in fades in, and the one leaving fades out, in the transition
+     * starting: set by [Pages] when the navigation picks its transition, read by the pages.
+     */
+    object PageFade {
+        @Volatile var enterMs: Int = PAGE_MS / 2
+        @Volatile var exitMs: Int = PAGE_MS
     }
 }
 

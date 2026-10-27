@@ -3,6 +3,7 @@ package com.music.spotui.ui.screens
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.AppMuted
+import com.music.spotui.ui.theme.AppAccent
 
 import com.music.spotui.ui.components.SkeletonKind
 import com.music.spotui.ui.components.pressable
@@ -129,7 +130,7 @@ fun HomeScreen(navController: NavController){
                                 textAlign = TextAlign.Center,
                             )
                             if (home is Response.Error) androidx.compose.material3.TextButton(onClick = { homeViewModel.retry() }) {
-                                Text(stringResource(R.string.home_retry), color = Color(0xFF1DB954))
+                                Text(stringResource(R.string.home_retry), color = AppAccent)
                             }
                         }
                     }
@@ -172,10 +173,14 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel, facet: St
     // ("Jump back in", "Made For …"), it renders as a titled carousel first,
     // not force-squeezed into the grid.
     // Podcasts are off for now: their shows and episodes leave the feed.
-    val sections = if (com.music.spotui.data.api.Features.PODCASTS) feed.sections
+    // Kept between recompositions: a new list for every one of them would restart the rows below.
+    val sections = remember(feed) {
+        if (com.music.spotui.data.api.Features.PODCASTS) feed.sections
         else feed.sections.map { s -> s.copy(items = s.items.filterNot { it is HomeItem.Show }) }.filter { it.items.isNotEmpty() }
-    val gridSection = sections.firstOrNull()?.takeIf { it.title.isBlank() }
-    val carousels = if (gridSection != null) sections.drop(1) else sections
+    }
+    val gridSection = remember(sections) { sections.firstOrNull()?.takeIf { it.title.isBlank() } }
+    val carousels = remember(sections, gridSection) { if (gridSection != null) sections.drop(1) else sections }
+    val carouselKeys = remember(carousels) { uniqueKeys(carousels.map { it.title }) }
     // The shortcuts at the top load in the background, ready before a tap.
     androidx.compose.runtime.LaunchedEffect(gridSection?.items?.map { it.name }) {
         val top = gridSection?.items.orEmpty().take(8).mapNotNull { item ->
@@ -230,7 +235,7 @@ fun HomeFeedContent(navController: NavController, feed: HomeFeedModel, facet: St
                 HomeShortcutGrid(navController, section.items.take(8))
             }
         }
-        items(carousels.size) { i ->
+        items(carousels.size, key = { carouselKeys[it] }) { i ->
             HomeFeedSection(navController, carousels[i])
         }
         // Sections from extensions (home.sections), after Spotify's own, each under its extension's name.
@@ -251,21 +256,24 @@ private fun HomeHeaderRow(navController: NavController, facet: String, onFacet: 
     }
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 10.dp, bottom = 10.dp),
+        // The row's 10 dp above and below sit in each child instead, so the avatar's tap area
+        // takes them in (and the margin up to the separator) without moving anything.
+        modifier = Modifier.fillMaxWidth(),
     ) {
         val avatarUrl = com.music.spotui.data.api.ProfileCache.imageUrl
         val initial = com.music.spotui.data.api.ProfileCache.name
             ?.trim()?.firstOrNull()?.uppercase() ?: "•"
         Box(
+            modifier = Modifier
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { showProfile = true }
+                .padding(start = 16.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
+        ) {
+        Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .padding(start = 16.dp)
                 .size(34.dp)
                 .clip(CircleShape)
-                .background(Color(0xFFE8622C))
-                .clickable { showProfile = true },
+                .background(Color(0xFFE8622C)),
         ) {
             if (avatarUrl != null) {
                 GlideImage(
@@ -284,11 +292,12 @@ private fun HomeHeaderRow(navController: NavController, facet: String, onFacet: 
                 )
             }
         }
+        }
         // B31: a separator between the profile and the options, reported missing from this
         // header (the sheets already carry one).
         Box(
             modifier = Modifier
-                .padding(start = 10.dp)
+                .padding(vertical = 10.dp)
                 .size(width = 1.dp, height = 22.dp)
                 .background(tone(0xFF3E3E3E)),
         )
@@ -299,7 +308,7 @@ private fun HomeHeaderRow(navController: NavController, facet: String, onFacet: 
             modifier = Modifier
                 .weight(1f)
                 .horizontalScroll(androidx.compose.foundation.rememberScrollState())
-                .padding(start = 12.dp, end = 8.dp),
+                .padding(start = 12.dp, end = 8.dp, top = 10.dp, bottom = 10.dp),
         ) {
             // Spotify's home chips; tapping the selected one goes back to "Tout".
             HomePill(stringResource(R.string.filter_chip_all_label), selected = facet.isEmpty()) { onFacet("") }
@@ -373,6 +382,16 @@ private fun HomeShortcutGrid(navController: NavController, items: List<HomeItem>
     }
 }
 
+/** A key per entry that stays with it while the others around it change: [raw], with a counter on repeats. */
+private fun uniqueKeys(raw: List<String>): List<String> {
+    val seen = HashMap<String, Int>()
+    return raw.map { k ->
+        val n = (seen[k] ?: 0) + 1
+        seen[k] = n
+        if (n == 1) k else "$k#$n"
+    }
+}
+
 @Composable
 private fun HomeFeedSection(navController: NavController, section: HomeSection) {
     Text(
@@ -384,8 +403,9 @@ private fun HomeFeedSection(navController: NavController, section: HomeSection) 
         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.padding(16.dp, 20.dp, 16.dp, 4.dp),
     )
+    val keys = remember(section) { uniqueKeys(section.items.map { it.name + "|" + it.imageUrl }) }
     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(10.dp, 0.dp)) {
-        items(section.items.size) { i ->
+        items(section.items.size, key = { keys[it] }) { i ->
             HomeFeedCard(section.items[i]) { onHomeItemClick(navController, section.items[i]) }
         }
     }

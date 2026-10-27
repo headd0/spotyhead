@@ -47,6 +47,7 @@ import androidx.palette.graphics.Palette
 import com.bumptech.glide.Glide
 import com.bumptech.glide.request.target.CustomTarget
 import com.bumptech.glide.request.transition.Transition
+import com.music.spotui.di.COVER_DECODE_PX
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlin.math.PI
@@ -250,7 +251,7 @@ private fun loadArtwork(context: Context, imageUrl: String, onLoaded: (Bitmap) -
     Glide.with(context.applicationContext)
         .asBitmap()
         .load(imageUrl)
-        .override(128, 128) // palette quality is fine at thumbnail size, and it's fast
+        .override(COVER_DECODE_PX, COVER_DECODE_PX) // the same decode as the colours of the player: Glide reuses it
         .disallowHardwareConfig() // Palette needs pixel access
         .into(object : CustomTarget<Bitmap>() {
             override fun onResourceReady(resource: Bitmap, transition: Transition<in Bitmap>?) = onLoaded(resource)

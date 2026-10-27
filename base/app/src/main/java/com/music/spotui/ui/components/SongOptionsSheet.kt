@@ -376,7 +376,7 @@ internal fun CreditsSheet(song: SongsModel, onDismiss: () -> Unit) {
         value = runCatching { app.myspoti.host.android.MyspotiRuntime.api.extras.credits("spotify:track:${song.spotifyTrackId}") }
             .getOrDefault(app.myspoti.api.Credits(emptyList()))
     }
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = tone(0xFF282828), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    LookSheet(onDismissRequest = onDismiss, containerColor = tone(0xFF282828), sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp)) {
             Text(stringResource(R.string.track_credits), color = AppText, fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 modifier = Modifier.padding(20.dp, 8.dp))
@@ -407,7 +407,7 @@ internal fun CreditsSheet(song: SongsModel, onDismiss: () -> Unit) {
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun SpeedSheet(onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = tone(0xFF282828)) {
+    LookSheet(onDismissRequest = onDismiss, containerColor = tone(0xFF282828)) {
         Column(Modifier.fillMaxWidth().padding(bottom = 24.dp)) {
             Text(stringResource(R.string.playback_speed), color = AppText, fontSize = 20.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
                 modifier = Modifier.padding(20.dp, 8.dp))

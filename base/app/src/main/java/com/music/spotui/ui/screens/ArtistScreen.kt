@@ -1,7 +1,10 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.components.widePressable
+import com.music.spotui.ui.components.wideClickable
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
+import com.music.spotui.ui.theme.AppMuted
 
 import com.music.spotui.ui.components.SkeletonKind
 import com.music.spotui.ui.components.pressable
@@ -232,10 +235,10 @@ private fun ArtistOverviewContent(
                     modifier = Modifier
                         .statusBarsPadding()
                         .padding(12.dp)
+                        .wideClickable { navController.navigateUp() }
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable { navController.navigateUp() },
+                        .background(Color.Black.copy(alpha = 0.35f)),
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = Color.White)
                 }
@@ -414,7 +417,9 @@ private fun ArtistOverviewContent(
                     modifier = Modifier.padding(16.dp, 8.dp, 16.dp, 4.dp),
                 )
             }
-            itemsIndexed(tracks.take(if (showAllPopular) 10 else 5)) { index, item ->
+            val popular = tracks.take(if (showAllPopular) 10 else 5)
+            val popularKeys = rowKeys("pop", popular) { it.song.spotifyTrackId.ifBlank { it.song.title } }
+            itemsIndexed(popular, key = { i, _ -> popularKeys[i] }) { index, item ->
                 com.music.spotui.ui.components.SwipeToQueue(item.song) {
                 PopularTrackRow(
                     item, index, artistViewModel,
@@ -445,7 +450,9 @@ private fun ArtistOverviewContent(
         // ── Popular releases (discography) — vertical list, first few + "Show all" ──
         if (overview.popularReleases.isNotEmpty()) {
             item { SectionHeader(stringResource(R.string.popular_releases_section_title)) }
-            itemsIndexed(overview.popularReleases.take(4)) { _, album ->
+            val popularReleases = overview.popularReleases.take(4)
+            val popularReleaseKeys = rowKeys("release", popularReleases) { it.spotifyId.ifBlank { it.name } }
+            itemsIndexed(popularReleases, key = { i, _ -> popularReleaseKeys[i] }) { _, album ->
                 ReleaseRow(album) {
                     navController.navigate(albumRoute(album.name, album.artists.ifBlank { displayName }, album.spotifyId))
                 }
@@ -493,7 +500,7 @@ private fun ArtistOverviewContent(
                         }
                         Text(
                             text = overview.biography.orEmpty(),
-                            color = Color.Gray,
+                            color = AppMuted,
                             fontSize = 13.sp,
                             modifier = Modifier.padding(14.dp, 4.dp, 14.dp, 16.dp),
                         )
@@ -509,7 +516,8 @@ private fun ArtistOverviewContent(
                 LazyRow(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp, 0.dp),
                 ) {
-                    items(overview.relatedArtists.size) { i ->
+                    val relatedKeys = rowKeys("related", overview.relatedArtists) { it.id.ifBlank { it.name } }
+                    items(overview.relatedArtists.size, key = { relatedKeys[it] }) { i ->
                         RelatedArtistCard(overview.relatedArtists[i]) {
                             navController.navigate(artistRoute(overview.relatedArtists[i].name, overview.relatedArtists[i].id))
                         }
@@ -525,7 +533,8 @@ private fun ArtistOverviewContent(
                 LazyRow(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp, 0.dp),
                 ) {
-                    items(overview.appearsOn.size) { i ->
+                    val appearsOnKeys = rowKeys("appears", overview.appearsOn) { it.spotifyId.ifBlank { it.name } }
+                    items(overview.appearsOn.size, key = { appearsOnKeys[it] }) { i ->
                         ReleaseCard(overview.appearsOn[i]) {
                             navController.navigate(albumRoute(overview.appearsOn[i].name, overview.appearsOn[i].artists, overview.appearsOn[i].spotifyId))
                         }
@@ -552,7 +561,7 @@ private fun ArtistOverviewContent(
         ) {
             Icon(
                 Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = AppText,
-                modifier = Modifier.size(26.dp).clickable { navController.navigateUp() },
+                modifier = Modifier.wideClickable(horizontal = 12.dp, vertical = 15.dp) { navController.navigateUp() }.size(26.dp),
             )
             Text(
                 displayName, color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold,
@@ -632,6 +641,21 @@ private fun PopularTrackRow(
     }
 }
 
+/**
+ * A key per row of a lazy list, so a row keeps its place (and its state) when the list around it
+ * changes: [prefix] and the entry's [id], with a counter on repeats. The prefix keeps the lists
+ * of one page apart.
+ */
+private fun <T> rowKeys(prefix: String, list: List<T>, id: (T) -> String): List<String> {
+    val seen = HashMap<String, Int>()
+    return list.map { e ->
+        val k = "$prefix:${id(e)}"
+        val n = (seen[k] ?: 0) + 1
+        seen[k] = n
+        if (n == 1) k else "$k#$n"
+    }
+}
+
 @Composable
 private fun SectionHeader(title: String) {
     Text(
@@ -639,6 +663,7 @@ private fun SectionHeader(title: String) {
         color = AppText,
         fontSize = 20.sp,
         fontWeight = FontWeight.Bold,
+        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.padding(16.dp, 20.dp, 16.dp, 8.dp),
     )
 }
@@ -667,7 +692,7 @@ private fun ReleaseCard(album: AlbumsModel, onClick: () -> Unit) {
         Text(text = album.name, color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
         Text(
             text = album.time.ifBlank { album.artists }.let { if (album.time.isNotBlank()) "${album.time} • Album" else it },
-            color = Color.Gray,
+            color = AppMuted,
             fontSize = 11.sp,
             maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
@@ -706,7 +731,7 @@ private fun ReleaseRow(album: AlbumsModel, onClick: () -> Unit) {
             val year = releaseYear(album)
             Text(
                 text = listOf(year, kind).filter { it.isNotBlank() }.joinToString(" • "),
-                color = Color.Gray,
+                color = AppMuted,
                 fontSize = 13.sp,
                 maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 2.dp),
@@ -778,9 +803,8 @@ fun ArtistReleasesScreen(navController: NavController, artistName: String, artis
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "",
                         tint = AppText,
-                        modifier = Modifier.pressable(0.96f) { navController.navigateUp() }
-                            .size(26.dp)
-                            ,
+                        modifier = Modifier.widePressable(horizontal = 16.dp, vertical = 12.dp, pressedScale = 0.96f) { navController.navigateUp() }
+                            .size(26.dp),
                     )
                     Spacer(Modifier.width(16.dp))
                     Text(
@@ -811,28 +835,33 @@ fun ArtistReleasesScreen(navController: NavController, artistName: String, artis
             if (overview is Response.Loading) {
                 item { Loader() }
             }
+            // One key per row across the whole list (the latest release is also among the albums).
+            val albumKeys = rowKeys("album", albums) { it.spotifyId.ifBlank { it.name } }
+            val singleKeys = rowKeys("single", singles) { it.spotifyId.ifBlank { it.name } }
+            val featuredKeys = rowKeys("featured", featuredOn) { it.spotifyId.ifBlank { it.name } }
+            val untypedKeys = rowKeys("untyped", untyped) { it.spotifyId.ifBlank { it.name } }
             when (filter) {
-                "albums" -> items(albums.size) { i -> ReleaseRow(albums[i]) { openAlbum(albums[i]) } }
-                "singles" -> items(singles.size) { i -> ReleaseRow(singles[i]) { openAlbum(singles[i]) } }
-                "featured" -> items(featuredOn.size) { i -> ReleaseRow(featuredOn[i]) { openAlbum(featuredOn[i]) } }
+                "albums" -> items(albums.size, key = { albumKeys[it] }) { i -> ReleaseRow(albums[i]) { openAlbum(albums[i]) } }
+                "singles" -> items(singles.size, key = { singleKeys[it] }) { i -> ReleaseRow(singles[i]) { openAlbum(singles[i]) } }
+                "featured" -> items(featuredOn.size, key = { featuredKeys[it] }) { i -> ReleaseRow(featuredOn[i]) { openAlbum(featuredOn[i]) } }
                 else -> {
                     latest?.let {
                         item { ReleaseSectionHeader(stringResource(R.string.latest_release_title)) }
-                        item { ReleaseRow(it) { openAlbum(it) } }
+                        item(key = "latest") { ReleaseRow(it) { openAlbum(it) } }
                     }
                     if (albums.isNotEmpty()) {
                         item { ReleaseSectionHeader(stringResource(R.string.artist_releases_albums)) }
-                        items(albums.size) { i -> ReleaseRow(albums[i]) { openAlbum(albums[i]) } }
+                        items(albums.size, key = { albumKeys[it] }) { i -> ReleaseRow(albums[i]) { openAlbum(albums[i]) } }
                     }
                     if (singles.isNotEmpty()) {
                         item { ReleaseSectionHeader(stringResource(R.string.artist_releases_singles)) }
-                        items(singles.size) { i -> ReleaseRow(singles[i]) { openAlbum(singles[i]) } }
+                        items(singles.size, key = { singleKeys[it] }) { i -> ReleaseRow(singles[i]) { openAlbum(singles[i]) } }
                     }
                     if (untyped.isNotEmpty()) {
                         if (albums.isEmpty() && singles.isEmpty()) {
                             item { ReleaseSectionHeader(stringResource(R.string.popular_releases_section_title)) }
                         }
-                        items(untyped.size) { i -> ReleaseRow(untyped[i]) { openAlbum(untyped[i]) } }
+                        items(untyped.size, key = { untypedKeys[it] }) { i -> ReleaseRow(untyped[i]) { openAlbum(untyped[i]) } }
                     }
                 }
             }
@@ -847,24 +876,27 @@ private fun ReleaseSectionHeader(title: String) {
         color = AppText,
         fontSize = 22.sp,
         fontWeight = FontWeight.Bold,
+        maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         modifier = Modifier.padding(16.dp, 18.dp, 16.dp, 8.dp),
     )
 }
 
 @Composable
 private fun ReleaseFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    // Same pill as the Home chips.
     Box(
+        contentAlignment = Alignment.Center,
         modifier = Modifier.pressable(0.96f) { onClick() }
-            .clip(RoundedCornerShape(20.dp))
-            .background(if (selected) AppText else tone(0xFF2A2A2A))
-            
-            .padding(14.dp, 8.dp),
+            .clip(RoundedCornerShape(50))
+            .background(if (selected) com.music.spotui.ui.theme.AppAccent else tone(0xFF2A2A2A))
+            .padding(horizontal = 16.dp, vertical = 8.dp),
     ) {
         Text(
             text = label,
             color = if (selected) Color.Black else AppText,
-            fontSize = 13.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
         )
     }
 }
@@ -892,6 +924,6 @@ private fun RelatedArtistCard(artist: ArtistsModel, onClick: () -> Unit) {
         )
         Spacer(Modifier.height(6.dp))
         Text(text = artist.name, color = AppText, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-        Text(text = stringResource(R.string.artist_subtitle), color = Color.Gray, fontSize = 11.sp)
+        Text(text = stringResource(R.string.artist_subtitle), color = AppMuted, fontSize = 11.sp)
     }
 }

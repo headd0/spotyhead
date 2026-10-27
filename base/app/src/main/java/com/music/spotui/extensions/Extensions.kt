@@ -300,6 +300,7 @@ object Extensions {
         runningSha.remove(id)
         ExtensionAudio.forgetAll()
         ExtensionAuth.forget(id)
+        ExtensionAttestation.reset(id)
         File(dir, id).deleteRecursively()
         Logbook.log("ext $id: uninstalled")
     }
@@ -785,7 +786,14 @@ object Extensions {
             while (true) {
                 kotlinx.coroutines.delay(60_000)
                 if (!com.music.spotui.video.MusicVideoController.inForeground && !SongPlayer.isPlaying()) continue
-                runtimes.forEach { (id, rt) -> if (health.stale(id, STATUS_EVERY_MS)) scope.launch { probe(id, rt) } }
+                // This loop runs on the main thread for the life of the app: one failed round must not end it nor crash it.
+                try {
+                    runtimes.forEach { (id, rt) -> if (health.stale(id, STATUS_EVERY_MS)) scope.launch { probe(id, rt) } }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Logbook.log("ext: status round failed: ${e.javaClass.simpleName}: ${e.message}")
+                }
             }
         }
     }
@@ -801,11 +809,18 @@ object Extensions {
                 // The title and the length follow the uri a moment later.
                 .debounce(1_500)
                 .collect {
-                    val track = currentTrack() ?: return@collect
-                    val (origin, providerId) = currentOrigin()
-                    val json = PlaybackEvent.trackEventJson(track, origin, providerId)
-                    runtimes.forEach { (id, rt) ->
-                        scope.launch { runCatching { runInterruptible { rt.emit(ExtensionRuntime.EVENT_TRACK, json, TRACK_MS) } }.onFailure { failed(id, it.toString()) } }
+                    // A song whose details cannot be read tells nothing, it does not end the watch (nor crash the app).
+                    try {
+                        val track = currentTrack() ?: return@collect
+                        val (origin, providerId) = currentOrigin()
+                        val json = PlaybackEvent.trackEventJson(track, origin, providerId)
+                        runtimes.forEach { (id, rt) ->
+                            scope.launch { runCatching { runInterruptible { rt.emit(ExtensionRuntime.EVENT_TRACK, json, TRACK_MS) } }.onFailure { failed(id, it.toString()) } }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        Logbook.log("ext: track event failed: ${e.javaClass.simpleName}: ${e.message}")
                     }
                 }
         }
@@ -1150,6 +1165,11 @@ object Extensions {
                 if (!Extensions.mirror.disable(extensionId)) return "null"
                 try { return dispatcher.execute(call) } finally { Extensions.mirrorEndedBy(extensionId) }
             }
+            // Myspoti's own Connect mirror has the page already ("Count extension plays on Spotify"): it wins.
+            if (com.music.spotui.di.ConnectMirror.running) {
+                val why = "setLocalMute: Myspoti already plays this song on Spotify (Count extension plays on Spotify)"
+                Extensions.log(extensionId, "refused: $why"); throw IllegalStateException(why)
+            }
             if (!arbitrate(extensionId, "setLocalMute")) return "null"
             val (playing, uri, dur) = SongPlayer.localSnapshot3()
             Extensions.mirror.enable(extensionId, playing, uri, dur)?.let { Extensions.log(extensionId, "refused: $it"); throw IllegalStateException(it) }
@@ -1181,6 +1201,8 @@ object Extensions {
         override fun openAuth(extensionId: String, request: app.myspoti.extensions.AuthRequest): String = ExtensionAuth.open(extensionId, request)
 
         override fun whenOnline(extensionId: String) = askOnline(extensionId)
+
+        override fun attestation(): app.myspoti.extensions.Attestation = ExtensionAttestation
     }
 
     /** The raw door: the Web Player's GraphQL, page services and Spotify URLs, as the account. */

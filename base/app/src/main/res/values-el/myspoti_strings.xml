@@ -173,6 +173,27 @@
     <string name="setup_battery_detail">Η μουσική συνεχίζει με την οθόνη σβηστή</string>
     <string name="setup_enable">Επίτρεψε</string>
     <string name="setup_continue">Συνέχεια</string>
+    <string name="setup_intro_title">Πώς δουλεύει το Myspoti</string>
+    <string name="setup_intro_subtitle">Τρία πράγματα πριν ξεκινήσεις.</string>
+    <string name="setup_intro_spotify_title">Spotify, χωρίς διαφημίσεις</string>
+    <string name="setup_intro_spotify_detail">Ο λογαριασμός σου, οι playlist και τα likes σου, από τον ίδιο τον web player του Spotify. Δουλεύουν και οι δωρεάν λογαριασμοί.</string>
+    <string name="setup_intro_more_title">Περισσότερα από την επίσημη εφαρμογή</string>
+    <string name="setup_intro_more_detail">Στίχοι λέξη προς λέξη, επίσημα βίντεο, στατιστικά ακρόασης και δύο εμφανίσεις για να διαλέξεις.</string>
+    <string name="setup_intro_ext_title">Επεκτάσεις, αν θέλεις</string>
+    <string name="setup_intro_ext_detail">Πρόσθετα από την κοινότητα: άλλες πηγές ήχου, λήψεις και άλλα. Περισσότερα σε λίγο.</string>
+    <string name="setup_ext_title">Επεκτάσεις</string>
+    <string name="setup_ext_subtitle">Το Myspoti δουλεύει όπως είναι: παίζει Spotify. Οι επεκτάσεις είναι προαιρετικά πρόσθετα από την κοινότητα που κάνουν περισσότερα.</string>
+    <string name="setup_ext_audio_title">Άλλες πηγές ήχου</string>
+    <string name="setup_ext_audio_detail">Μια επέκταση μπορεί να παίζει τα τραγούδια σου από άλλη πηγή, στην ποιότητα που προσφέρει.</string>
+    <string name="setup_ext_download_title">Λήψεις</string>
+    <string name="setup_ext_download_detail">Για ακρόαση εκτός σύνδεσης, εγκατέστησε μια επέκταση λήψεων. Τα τραγούδια μένουν κρυπτογραφημένα στο Myspoti.</string>
+    <string name="setup_ext_more_title">Και άλλα</string>
+    <string name="setup_ext_more_detail">Ενότητες αρχικής, σελίδες και εργαλεία από τους δημιουργούς τους.</string>
+    <string name="setup_ext_safe_title">Εσύ έχεις τον έλεγχο</string>
+    <string name="setup_ext_safe_detail">Πριν την εγκατάσταση δείχνει τι μπορεί να κάνει. Για οτιδήποτε άλλο ρωτά ξανά, και μπορείς να την αφαιρέσεις όποτε θέλεις.</string>
+    <string name="setup_ext_where">Θα τις βρεις στις Ρυθμίσεις, Επεκτάσεις, από GitHub, GitLab και Codeberg. Τις γράφουν οι δημιουργοί τους, όχι το Myspoti.</string>
+    <string name="setup_ext_browse">Δες τις επεκτάσεις</string>
+    <string name="setup_ext_later">Αργότερα</string>
     <string name="local_folders_button">Φάκελοι</string>
     <string name="local_folders_title">Φάκελοι</string>
     <string name="local_folders_detail">Επίλεξε τους φακέλους που εμφανίζονται στα Τοπικά αρχεία. Οι εφαρμογές μηνυμάτων και οι ηχογραφήσεις ξεκινούν κρυφές.</string>
@@ -521,4 +542,8 @@
     <string name="look_offer_note">Μπορείτε να την αλλάξετε αργότερα στις Ρυθμίσεις &gt; Οθόνη και γλώσσα.</string>
     <string name="settings_headset_skip_title">Κουμπιά ακουστικών: 15 δ στα podcast</string>
     <string name="settings_headset_skip_detail">Απενεργοποιημένο: πηγαίνουν στο επόμενο ή προηγούμενο επεισόδιο</string>
+    <string name="settings_connect_mirror_title">Μέτρηση ακροάσεων επεκτάσεων στο Spotify</string>
+    <string name="settings_connect_mirror_detail">Παίζει το τραγούδι του Spotify σε σίγαση στο παρασκήνιο, ώστε να μετράει και οι συσκευές σας να το ελέγχουν. Χρησιμοποιεί λίγο περισσότερα δεδομένα και μπαταρία: απενεργοποιήστε το αν δεν το χρειάζεστε.</string>
+    <string name="explicit_badge">E</string>
+    <string name="spotify_plan">Spotify %1$s</string>
 </resources>

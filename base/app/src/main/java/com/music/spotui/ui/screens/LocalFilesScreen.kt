@@ -4,6 +4,7 @@ import com.music.spotui.ui.theme.headerTint
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.AppMuted
+import com.music.spotui.ui.theme.AppAccent
 
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -255,7 +256,7 @@ internal fun LocalFoldersSheet(onChanged: () -> Unit, onDismiss: () -> Unit) {
                                 version++
                                 onChanged()
                             },
-                            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Color(0xFF1DB954)),
+                            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = AppAccent),
                         )
                     }
                 }

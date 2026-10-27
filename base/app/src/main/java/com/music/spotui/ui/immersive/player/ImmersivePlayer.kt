@@ -364,7 +364,7 @@ fun ImmersivePlayer(
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(
-                                            text = "E",
+                                            text = stringResource(R.string.explicit_badge),
                                             style = Immersive.Caption.copy(fontSize = 10.sp, lineHeight = 10.sp, fontWeight = FontWeight.Bold),
                                             color = Color.Black,
                                         )
@@ -439,7 +439,8 @@ fun ImmersivePlayer(
                     PlayerActionRow(
                         lyricsOpen = lyricsOpen,
                         queueOpen = queueOpen,
-                        shuffleEnabled = state.shuffle,
+                        shuffleEnabled = state.shuffle || state.smart,
+                        smartEnabled = state.smart,
                         repeatMode = state.repeatMode,
                         deviceActive = state.deviceName != null,
                         // Lyrics and the queue are two things to show in one place: opening one closes the other.

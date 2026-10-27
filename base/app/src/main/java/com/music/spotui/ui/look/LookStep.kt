@@ -45,6 +45,7 @@ import app.myspoti.engine.R
 import com.music.spotui.data.preferences.Look
 import com.music.spotui.data.preferences.LookPref
 import com.music.spotui.ui.theme.AppBackground
+import com.music.spotui.ui.theme.AppAccent
 import com.music.spotui.ui.theme.AppSans
 import kotlin.math.abs
 
@@ -127,7 +128,7 @@ fun LookStep(onNext: () -> Unit, offer: LookOffer? = null) {
                 onClick = onNext,
                 shape = if (immersive) RoundedCornerShape(14.dp) else ButtonDefaults.shape,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (immersive) Color.White else Color(0xFF1DB954),
+                    containerColor = if (immersive) Color.White else AppAccent,
                     contentColor = Color.Black,
                 ),
                 modifier = Modifier.fillMaxWidth().height(50.dp),
@@ -167,7 +168,7 @@ private fun LookSegments(look: Look, immersive: Boolean, family: androidx.compos
                 when {
                     !selected -> Color.Transparent
                     immersive -> Color.White.copy(alpha = 0.92f)
-                    else -> Color(0xFF1DB954)
+                    else -> AppAccent
                 },
                 label = "segmentFill",
             )

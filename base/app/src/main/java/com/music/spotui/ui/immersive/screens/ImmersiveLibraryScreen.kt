@@ -169,8 +169,8 @@ fun ImmersiveLibraryScreen(navController: NavController) {
     var itemMenu by remember { mutableStateOf<LibraryEntry?>(null) }
     // Rows or a grid of covers, persisted across runs.
     var gridView by remember { mutableStateOf(isLibraryGridView(context)) }
-    var searchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchActive by rememberSaveable { mutableStateOf(false) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var kind by rememberSaveable { mutableStateOf(LibraryChip.ALL) }
 
     if (showAccount) {
@@ -186,14 +186,14 @@ fun ImmersiveLibraryScreen(navController: NavController) {
 
     val loading = entries is Response.Loading
     val (allEntries, pinned) = libraryEntries(entries)
-    val (byKind, artists) = LibraryChips.apply(
-        kind, allEntries, followedArtists,
-        setOf(Api.HomeCache.LIKED_SONGS_ID, Api.HomeCache.LOCAL_FILES_ID, Api.HomeCache.DOWNLOADS_ID),
-    )
-    val shownEntries = if (searchQuery.isBlank()) byKind else byKind.filter {
-        it.name.contains(searchQuery, ignoreCase = true) || it.subtitle.contains(searchQuery, ignoreCase = true)
+    // The kind and search filters only run again when their inputs change, not on every recomposition.
+    val (shownEntries, shownArtists) = remember(kind, allEntries, followedArtists, searchQuery) {
+        val (byKind, artists) = LibraryChips.apply(kind, allEntries, followedArtists, LIBRARY_SONG_IDS)
+        if (searchQuery.isBlank()) byKind to artists
+        else byKind.filter {
+            it.name.contains(searchQuery, ignoreCase = true) || it.subtitle.contains(searchQuery, ignoreCase = true)
+        } to artists.filter { it.name.contains(searchQuery, ignoreCase = true) }
     }
-    val shownArtists = if (searchQuery.isBlank()) artists else artists.filter { it.name.contains(searchQuery, ignoreCase = true) }
     // Only the whole library, unfiltered, can be put in a new order.
     val reorderLevel = if (kind == LibraryChip.ALL && searchQuery.isBlank()) LibraryOrder.ROOT else null
 
@@ -270,12 +270,16 @@ fun ImmersiveLibraryScreen(navController: NavController) {
                 },
                 tint = if (searchActive) Immersive.Accent else Immersive.Text,
             )
-            Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) {
+            // The whole 44 dp slot takes the tap, not only the 36 dp disc in it.
+            Box(
+                Modifier.size(44.dp).immersiveClickable(onClick = { showAccount = true }),
+                contentAlignment = Alignment.Center,
+            ) {
                 AvatarDisc(
                     url = avatar?.imageUrl,
                     initial = avatar?.name?.trim()?.firstOrNull()?.uppercase() ?: "•",
                     contentDescription = stringResource(R.string.account_title),
-                    onClick = { showAccount = true },
+                    onClick = null,
                 )
             }
         }
@@ -292,6 +296,9 @@ fun ImmersiveLibraryScreen(navController: NavController) {
         }
     }
 }
+
+/** The library rows that hold songs rather than a playlist, for [LibraryChips.apply]. */
+private val LIBRARY_SONG_IDS = setOf(Api.HomeCache.LIKED_SONGS_ID, Api.HomeCache.LOCAL_FILES_ID, Api.HomeCache.DOWNLOADS_ID)
 
 /** The collapse fraction (0..1) of a grid page, as [rememberTopBarCollapse] gives a list's. */
 @Composable
@@ -447,7 +454,7 @@ private fun openLibraryEntry(entry: LibraryEntry, navController: NavController) 
 /** The rows layout. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun LibraryList(
+internal fun LibraryList(
     listState: LazyListState,
     header: @Composable () -> Unit,
     loading: Boolean,
@@ -737,7 +744,7 @@ private fun LibraryGrid(
     LazyVerticalGrid(
         state = gridState,
         columns = GridCells.Fixed(3),
-        modifier = Modifier.fillMaxSize().immersiveChromeScroll(),
+        modifier = Modifier.fillMaxSize().immersiveHazeSource().immersiveChromeScroll(),
         contentPadding = PaddingValues(
             start = Immersive.Gutter, end = Immersive.Gutter,
             top = immersiveTopContentPadding(), bottom = Immersive.BottomChrome,

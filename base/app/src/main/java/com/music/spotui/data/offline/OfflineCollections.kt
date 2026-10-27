@@ -8,11 +8,12 @@ import com.music.spotui.data.api.Response
 import com.music.spotui.data.entity.ContextPageModel
 import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.di.Graph
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,7 +43,8 @@ object OfflineCollections {
     private const val SYNC_EVERY_MS = 6 * 3_600_000L
     private lateinit var file: File
     private val lock = Any()
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // A refresh that fails (no network, a page that cannot be read) is logged, never a crash of the app.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> Log.w(TAG, "refresh failed: ${e.javaClass.simpleName}: ${e.message}") })
 
     val collections: SnapshotStateMap<String, OfflineCollection> = mutableStateMapOf()
     /** Songs downloaded on their own, kept whatever the lists do. */
@@ -168,8 +170,15 @@ object OfflineCollections {
             if (com.music.spotui.data.DataSaver.metered) { waitForWifi(); return@launch }
             val due = collections.values.filter { force || System.currentTimeMillis() - it.syncedAt > SYNC_EVERY_MS }
             for (c in due) {
-                val page = withTimeoutOrNull(60_000) { loadComplete(c) } ?: continue
-                withContext(Dispatchers.Main) { sync(page) }
+                // One list that fails does not stop the others.
+                try {
+                    val page = withTimeoutOrNull(60_000) { loadComplete(c) } ?: continue
+                    withContext(Dispatchers.Main) { sync(page) }
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    Log.w(TAG, "${c.name} not refreshed: ${e.javaClass.simpleName}: ${e.message}")
+                }
             }
         }
     }
@@ -193,11 +202,12 @@ object OfflineCollections {
         val api = Graph.api
         val id = c.uri.substringAfterLast(":")
         val flow = when (c.type) {
-            "album" -> api.getAlbumPage(id)
+            "album" -> api.getAlbumPage(id, stored = false)
             "liked" -> api.getLikedPage()
             else -> api.getPlaylistPage(id)
         }
-        return (flow.first { it is Response.Error || (it is Response.Success && it.data.complete) } as? Response.Success)?.data
+        // A flow that ends without a complete page (the player never ready) is no page, not an error.
+        return (flow.firstOrNull { it is Response.Error || (it is Response.Success && it.data.complete) } as? Response.Success)?.data
     }
 
     private fun save() {

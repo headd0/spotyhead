@@ -119,8 +119,14 @@ internal class PendingInstall(val zip: ByteArray, val pkg: ExtensionPackage, val
 
 internal val pending = MutableStateFlow<PendingInstall?>(null)
 
-internal fun toastError(ctx: Context, t: Throwable) =
-    Toast.makeText(ctx, ctx.getString(R.string.extensions_error, t.message ?: t.toString()), Toast.LENGTH_LONG).show()
+/** Runs installs the user confirmed, past the prompt that started them. */
+private val installScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main)
+
+/** A failure said in a toast; a cancelled job (its screen closed) is not one. */
+internal fun toastError(ctx: Context, t: Throwable) {
+    if (t is kotlinx.coroutines.CancellationException) return
+    Toast.makeText(ctx.applicationContext, ctx.getString(R.string.extensions_error, t.message ?: t.toString()), Toast.LENGTH_LONG).show()
+}
 
 /** Reads [zip] and opens the install prompt; a refused package says why. */
 internal fun offer(ctx: Context, zip: ByteArray, source: String, origin: app.myspoti.extensions.Origin? = null) {
@@ -178,7 +184,6 @@ internal fun InstallPrompt() {
     val p = pending.collectAsState().value ?: return
     ProtectedSurfaceEffect(ProtectedSurface.INSTALL)
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
     val registry by Extensions.registry.collectAsState()
     val m = p.pkg.manifest
     val plan = p.plan
@@ -231,7 +236,9 @@ internal fun InstallPrompt() {
                     onClick = {
                         pending.value = null
                         val choice = keepNew.toMap()
-                        scope.launch {
+                        // Not the prompt's scope: closing the prompt cancelled it, and the cancelled
+                        // (yet finished) install showed as an error.
+                        installScope.launch {
                             runCatching { Extensions.install(p.zip, p.pkg, Grants.keys(m), p.source, clashes, { choice[it] != false }, noticeAccepted = true, origin = p.origin) }.onFailure { toastError(ctx, it) }
                         }
                     },
@@ -295,7 +302,7 @@ internal fun ClashDialog(m: Manifest, clashes: List<Clash>, onDismiss: () -> Uni
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = tone(0xFF282828),
-        title = { Text(m.name, color = AppText) },
+        title = { Text(m.name, color = AppText, maxLines = 2, overflow = TextOverflow.Ellipsis) },
         text = { Column(Modifier.verticalScroll(rememberScrollState())) { ClashChoices(m.name, clashes, keepNew) } },
         confirmButton = { TextButton(onClick = { onDone(keepNew.toMap()) }) { Text(stringResource(R.string.ext_clash_ok), color = AppAccent) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.extensions_cancel), color = AppText) } },
@@ -375,15 +382,29 @@ internal fun categoryLabel(c: Category?): Int = when (c) {
 @Composable
 internal fun ExtIcon(id: String, name: String, iconUrl: String?, bytes: ByteArray?, size: Dp = 44.dp) {
     val tint = remember(id) { Color.hsv(((id.hashCode() and 0x7fffffff) % 360).toFloat(), 0.45f, 0.58f) }
-    val bitmap = remember(bytes) { bytes?.let { runCatching { BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap() }.getOrNull() } }
+    // Decoded off the main thread, at the size shown (an icon file can be a large picture).
+    val targetPx = with(androidx.compose.ui.platform.LocalDensity.current) { size.roundToPx() }
+    val bitmap by androidx.compose.runtime.produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, bytes, targetPx) {
+        value = bytes?.let { b -> withContext(Dispatchers.Default) { runCatching { decodeSampled(b, targetPx) }.getOrNull() } }
+    }
+    val icon = bitmap
     Box(Modifier.size(size).clip(RoundedCornerShape(size / 4)).background(tint), contentAlignment = Alignment.Center) {
         Text(name.firstOrNull { it.isLetterOrDigit() }?.uppercase() ?: "?", color = Color.White, fontWeight = FontWeight.Bold, fontSize = (size.value * 0.42f).sp)
         when {
-            bitmap != null -> Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            icon != null -> Image(icon, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             iconUrl != null && iconUrl.startsWith("https://") && !com.music.spotui.data.DataSaver.active ->
                 GlideImage(model = iconUrl, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
     }
+}
+
+/** [bytes] as a bitmap no larger than needed for [targetPx] on both sides (a power-of-two sample). */
+private fun decodeSampled(bytes: ByteArray, targetPx: Int): androidx.compose.ui.graphics.ImageBitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    var sample = 1
+    while (bounds.outWidth / (sample * 2) >= targetPx && bounds.outHeight / (sample * 2) >= targetPx) sample *= 2
+    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample })?.asImageBitmap()
 }
 
 /** An entry's icon address, resolved against its index's. */

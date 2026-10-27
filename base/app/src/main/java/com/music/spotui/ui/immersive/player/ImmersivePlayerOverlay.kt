@@ -37,7 +37,6 @@ import androidx.navigation.NavController
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.navigation.LocalPageSettled
 import com.music.spotui.ui.navigation.PlayerSheet
-import com.music.spotui.ui.screens.PodcastPlayerScreen
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -59,7 +58,7 @@ private fun slideSpec(reduce: Boolean) = com.music.spotui.ui.immersive.motion.Im
  * The Immersive look's player over the pages, a drop-in for [com.music.spotui.ui.navigation.PlayerOverlay]:
  * driven by [PlayerSheet] (`open`, `show()`, `close()`), it rises on a spring when opened, follows
  * a pull down and closes with the finger's speed, closes on the back button and on any navigation.
- * A podcast episode keeps the existing podcast player.
+ * A podcast episode gets [ImmersivePodcastPlayer].
  */
 @Composable
 fun ImmersivePlayerOverlay(navController: NavController) {
@@ -162,9 +161,9 @@ fun ImmersivePlayerOverlay(navController: NavController) {
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {},
     ) {
         CompositionLocalProvider(LocalPageSettled provides settled, LocalPlayerSheetDrag provides sheetDrag) {
-            // A podcast episode gets the podcast player; everything else the Immersive one.
+            // A podcast episode gets the podcast player (15 s skips, speed); everything else the music one.
             if (SongPlayer.isEpisode) {
-                PodcastPlayerScreen(navController)
+                ImmersivePodcastPlayer(navController)
             } else {
                 val bridge = rememberImmersivePlayer(navController)
                 ImmersivePlayer(bridge.state, bridge.actions, navController = navController)

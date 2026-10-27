@@ -1,5 +1,6 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.components.wideClickable
 import com.music.spotui.ui.theme.headerTint
 import com.music.spotui.ui.theme.AppText
 
@@ -127,10 +128,10 @@ fun EpisodeScreen(navController: NavController, episodeId: String, fallbackName:
                         contentAlignment = Alignment.Center,
                         modifier = Modifier
                             .padding(12.dp)
+                            .wideClickable { navController.navigateUp() }
                             .size(40.dp)
                             .clip(CircleShape)
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .clickable { navController.navigateUp() },
+                            .background(Color.Black.copy(alpha = 0.35f)),
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = Color.White)
                     }

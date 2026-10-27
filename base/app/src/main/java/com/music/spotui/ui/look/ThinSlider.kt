@@ -60,6 +60,34 @@ fun ThinSlider(
     onValueChange: (Float) -> Unit,
     modifier: Modifier = Modifier,
     onValueChangeFinished: (() -> Unit)? = null,
+    loading: Boolean = false,
+    idleHeight: Dp = 7.dp,
+    activeHeight: Dp = 12.dp,
+    activeColor: Color = Color.White.copy(alpha = 0.92f),
+    inactiveColor: Color = Color.White.copy(alpha = 0.26f),
+) = ThinSlider(
+    value = { value },
+    onValueChange = onValueChange,
+    modifier = modifier,
+    onValueChangeFinished = onValueChangeFinished,
+    loading = loading,
+    idleHeight = idleHeight,
+    activeHeight = activeHeight,
+    activeColor = activeColor,
+    inactiveColor = inactiveColor,
+)
+
+/**
+ * The same bar, with the position read by [value] rather than passed in. [value] is read only
+ * where the bar is drawn, so a value that moves every frame redraws the bar without recomposing
+ * the screen that holds it.
+ */
+@Composable
+fun ThinSlider(
+    value: () -> Float,
+    onValueChange: (Float) -> Unit,
+    modifier: Modifier = Modifier,
+    onValueChangeFinished: (() -> Unit)? = null,
     /**
      * Sends a travelling sheen across the whole bar — played *and* unplayed,
      * the bar's full thickness — for as long as it is true.
@@ -154,7 +182,7 @@ fun ThinSlider(
             // capsule's minimum width rides the same factor, so the nub at
             // zero progress retires with the fill instead of sitting as a
             // dot under the sheen.
-            val filled = size.width * value.coerceIn(0f, 1f) * fillFactor
+            val filled = size.width * value().coerceIn(0f, 1f) * fillFactor
             if (filled > 0f) {
                 drawRoundRect(
                     color = activeColor,

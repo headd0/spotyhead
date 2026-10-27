@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import app.myspoti.extensions.ExtensionPackage
+import app.myspoti.host.android.MyspotiRuntime
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.extensions.Extensions
 import com.music.spotui.extensions.Grants
@@ -58,7 +59,10 @@ class CliReceiver : BroadcastReceiver() {
     }
 
     private suspend fun run(ctx: Context, c: CliCommand): JsonElement = when (c) {
-        CliCommand.Status -> onMain {
+        CliCommand.Status -> {
+          // What the page streams now (bitrate, codec): one bridge call, for the mirror's quality check.
+          val audio = withContext(Dispatchers.Main) { if (MyspotiRuntime.isStarted) MyspotiRuntime.spotify.player.audioInfo() else 0 to "" }
+          onMain {
             val np = SongPlayer.nowPlaying.value
             buildJsonObject {
                 put("package", ctx.packageName)
@@ -88,7 +92,27 @@ class CliReceiver : BroadcastReceiver() {
                 }
                 put("extensions", if (Extensions.isReady) Extensions.registry.value.extensions.size else 0)
                 put("ui", nav.subscriptionCount.value > 0)
+                // The Connect mirror ("Count extension plays on Spotify") and the page under it.
+                put("mirror", buildJsonObject {
+                    val m = com.music.spotui.di.ConnectMirror.status()
+                    put("on", m.on); put("running", m.running); put("handedAway", m.handedAway); put("landed", m.landed)
+                    m.uri?.let { put("uri", it) }; m.paused?.let { put("paused", it) }
+                    m.webPositionMs?.let { put("webPositionMs", it) }; m.failedUri?.let { put("failedUri", it) }
+                    if (MyspotiRuntime.isStarted) {
+                        val page = MyspotiRuntime.spotify.player
+                        val s = page.state.value
+                        put("pageUri", s?.item?.uri ?: "")
+                        put("pagePaused", s?.isPaused ?: true)
+                        put("pagePositionMs", s?.positionAt(System.currentTimeMillis()) ?: 0L)
+                        put("hushed", page.localMute)
+                        put("quality", page.streamingLevel)
+                        put("bitrate", audio.first); put("codec", audio.second)
+                        put("playsElsewhere", page.playsElsewhere.value)
+                    }
+                    SongPlayer.activeDevice.value?.let { put("activeDevice", it.name) }
+                })
             }
+          }
         }
         CliCommand.ExtList -> JsonArray(ready().registry.value.extensions.map { e ->
             val m = Extensions.manifest(e.id)

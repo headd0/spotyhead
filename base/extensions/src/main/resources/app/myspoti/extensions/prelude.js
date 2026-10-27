@@ -122,9 +122,9 @@
 
     /**
      * What this app understands beyond the first API, for an extension to adapt to: "audio.manifest",
-     * "audio.expires", "audio.quality", "audio.source", "audio.ahead", "http.all", "status", "raw.base64", and "player.localMute" only when the user granted playback.mirror.
+     * "audio.expires", "audio.quality", "audio.source", "audio.ahead", "http.all", "status", "raw.base64", "player.localMute" only when the user granted playback.mirror, and "attest" only when it granted attest.
      */
-    features: Object.freeze(['audio.manifest', 'audio.expires', 'audio.quality', 'audio.source', 'audio.ahead', 'http.all', 'status', 'raw.base64'].concat(parse(host.info()).mirror ? ['player.localMute'] : [])),
+    features: Object.freeze(['audio.manifest', 'audio.expires', 'audio.quality', 'audio.source', 'audio.ahead', 'http.all', 'status', 'raw.base64'].concat(parse(host.info()).mirror ? ['player.localMute'] : [], parse(host.info()).attest ? ['attest'] : [])),
 
     /**
      * A sign-in page (webview.auth): open({ url, callback, hidden }) shows url in a web view of its
@@ -137,6 +137,20 @@
         if (r == null || typeof r.url !== 'string' || typeof r.callback !== 'string') throw new TypeError('auth.open({ url, callback })');
         return host.authOpen(r.url, r.callback, r.hidden === true);
       },
+    }),
+
+    /**
+     * A signing key of its own in the phone's hardware keystore (attest), so its server can tell its
+     * requests come from a genuine Myspoti install. No key exists before enroll(challenge), which
+     * returns { publicKey, certChain } (base64; the Android key attestation chain, the challenge
+     * inside). publicKey() is that key or null, sign(text) a base64 DER ECDSA-SHA256 signature of
+     * the UTF-8 text (it throws before enroll), reset() deletes the key.
+     */
+    attest: Object.freeze({
+      enroll: function (challenge) { return parse(host.attestEnroll(String(challenge))); },
+      publicKey: function () { return parse(host.attestPublicKey()); },
+      sign: function (text) { return host.attestSign(String(text)); },
+      reset: function () { host.attestReset(); },
     }),
 
     /** Work that waits for the network (network): whenOnline() asks for one on('online') once it is there. */

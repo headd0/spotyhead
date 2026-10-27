@@ -18,6 +18,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -27,9 +28,11 @@ import com.music.spotui.data.entity.SongsModel
 import com.music.spotui.di.SongPlayer
 import com.music.spotui.ui.navigation.PlayerSheet
 import com.music.spotui.ui.navigation.albumRoute
+import com.music.spotui.ui.screens.SmartShuffle
 import com.music.spotui.ui.screens.nowPlayingSong
 import com.music.spotui.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Repeat modes, as [SongPlayer.repeatMode] reports them. */
 object ImmersiveRepeat {
@@ -54,6 +57,8 @@ data class ImmersivePlayerState(
     val positionMs: () -> Long = { 0L },
     val durationMs: Long = 0L,
     val shuffle: Boolean = false,
+    /** Smart shuffle is on for the list that plays. */
+    val smart: Boolean = false,
     /** [ImmersiveRepeat]. */
     val repeatMode: Int = ImmersiveRepeat.OFF,
     val liked: Boolean = false,
@@ -108,6 +113,8 @@ fun rememberImmersivePlayer(navController: NavController): ImmersivePlayerBridge
     val songId = vm.currentSongId.value
     val liked = vm.likeState.value
     val shuffle = vm.shuffleState.value
+    val smart = SmartShuffle.on.value != null && SmartShuffle.on.value == np.contextUri
+    val smartScope = rememberCoroutineScope()
     val repeat = SongPlayer.repeatMode.value
     val buffering = SongPlayer.isBuffering
     val adPlaying = SongPlayer.adPlaying
@@ -135,6 +142,7 @@ fun rememberImmersivePlayer(navController: NavController): ImmersivePlayerBridge
         positionMs = remember { { SongPlayer.getCurrentPosition() } },
         durationMs = duration,
         shuffle = shuffle,
+        smart = smart,
         repeatMode = repeat,
         liked = liked,
         isEpisode = episode,
@@ -165,7 +173,24 @@ fun rememberImmersivePlayer(navController: NavController): ImmersivePlayerBridge
             next = { SongPlayer.swipeNext() },
             previous = { SongPlayer.previous() },
             seekTo = { SongPlayer.seekTo(it) },
-            toggleShuffle = { vm.updateShuffleState(!vm.shuffleState.value) },
+            // As in the Classic player: off → shuffle → smart shuffle (playlists, Liked Songs) → off.
+            toggleShuffle = {
+                val ctx = SongPlayer.nowPlaying.value.contextUri
+                when {
+                    SmartShuffle.on.value != null && SmartShuffle.on.value == ctx -> { SmartShuffle.on.value = null; vm.updateShuffleState(false) }
+                    vm.shuffleState.value && SmartShuffle.canPlay(ctx) -> {
+                        SmartShuffle.on.value = ctx
+                        Toast.makeText(context, context.getString(R.string.smart_shuffle_on), Toast.LENGTH_SHORT).show()
+                        smartScope.launch {
+                            if (!SmartShuffle.startFor(ctx, SongPlayer.currentTrackId)) {
+                                SmartShuffle.on.value = null
+                                Toast.makeText(context, context.getString(R.string.page_load_failed), Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    else -> vm.updateShuffleState(!vm.shuffleState.value)
+                }
+            },
             cycleRepeat = { SongPlayer.cycleRepeat() },
             toggleLike = {
                 val on = !vm.likeState.value

@@ -36,6 +36,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Extension
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Headphones
 import androidx.compose.material.icons.rounded.Home
@@ -159,6 +160,7 @@ fun actionIcon(a: Action?): ImageVector = when (a) {
     Action.WEBVIEW_PAGE -> Icons.Rounded.Web
     Action.WEBVIEW_AUTH -> Icons.Rounded.Key
     Action.STORAGE -> Icons.Rounded.Save
+    Action.ATTEST -> Icons.Rounded.Fingerprint
     null -> Icons.Rounded.Extension
 }
 
@@ -186,6 +188,7 @@ fun actionLabel(a: Action?): Int = when (a) {
     Action.WEBVIEW_PAGE -> R.string.action_webview_page
     Action.WEBVIEW_AUTH -> R.string.action_webview_auth
     Action.STORAGE -> R.string.action_storage
+    Action.ATTEST -> R.string.action_attest
     null -> R.string.action_unknown
 }
 

@@ -36,6 +36,8 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -114,8 +116,11 @@ fun ImmersiveRecentlyPlayedScreen(navController: NavController) {
     // The list holds thousands of rows: the next pages load as the end comes into view.
     var nextOffset by remember { mutableStateOf<Int?>(null) }
     var loadingMore by remember { mutableStateOf(false) }
-    var podcasts by remember { mutableStateOf(false) }
-    var expanded by remember { mutableStateOf(emptySet<String>()) }
+    // The pill and the unfolded contexts survive a recreation; the loaded entries load again.
+    var podcasts by rememberSaveable { mutableStateOf(false) }
+    var expanded by rememberSaveable(
+        stateSaver = listSaver(save = { it.toList() }, restore = { it.toSet() }),
+    ) { mutableStateOf(emptySet<String>()) }
     var generation by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
     val reduceMotion = rememberReduceMotion()

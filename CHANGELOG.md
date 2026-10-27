@@ -2,6 +2,25 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
+## 2.1.0
+
+The first stable release since 2.0.1, with everything from the 2.0.2 betas (their notes are below) and more.
+
+- ✨ **New Immersive look** (optional, Apple-Music-like): Liquid Glass bars that fold away when you scroll, animated player and lyrics, glass sheets, and its own pages for albums, folders, local playlists, extensions and podcast episodes. Switch in Settings, Display; Classic stays the default. Each look keeps its own **accent colour** and shows only its own settings.
+- 🧩 **Extensions**: audio and download sources are extensions now, ordered as you like with Spotify among them, found on GitHub, GitLab and Codeberg. Safer: public hosts only, new permissions need your OK, a crash no longer takes the app down.
+- 📱 **Spotify Connect with extension sources**: when an extension plays a Spotify song, the phone stays a Connect device. The official Spotify apps and your other devices see it and control it, and the song counts on Spotify through a real muted play at low quality. Turn it off in Settings if you prefer to save data and battery.
+- 📊 **Plays count on Spotify**, Recents included. **Listening stats** and **friend activity**.
+- 👥 **Collaborative playlists**: leave one, or manage it as the owner.
+- 🚫 **Fewer "Spotify refused to play this"** (402) and no songs skipping on their own; better ad blocking (more ad hosts, ads found by their metadata, reloads that stay silent).
+- 🔀 **Shuffle in Immersive** goes through shuffle, smart shuffle and off, as in Classic.
+- 🔎 **A song played from search** goes on with related songs, no longer with your Liked Songs.
+- 📻 **Radios**: the playing-from header and the song title open the right page and album.
+- 👋 **New onboarding**: how Myspoti works, then what extensions are and where to find them (shown once after the update too).
+- 👆 **Easier taps**: wider back and profile buttons, and the glass bars no longer let taps through to the page.
+- 🎧 **Headphones and car**: 15 s skips for podcasts, Android Auto that keeps playing, background playback that keeps running.
+- ⚡ **Faster and lighter**: pages and Liked Songs kept on the phone, cached lyrics and searches, a smaller image cache, smoother lists and animations, Remove animations honoured everywhere.
+- 🌍 **More languages**: Chinese, Russian, Polish, Turkish, Indonesian, and Spanish for Argentina and Mexico.
+
 ## 2.0.2-beta.8
 
 - 🎚️ **Source order** (Settings, Playback and Downloads): put your audio and download sources in the order you want; each song is asked from top to bottom. Spotify has its own place too, first if you like. Each source shows only what matters, details on a tap. Installing a second source no longer clashes with the first.

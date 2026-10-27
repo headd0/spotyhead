@@ -192,7 +192,7 @@ class WebPlayerHost(private val context: Context) : BridgeHost {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 val url = request.url.toString()
                 if (AdBlock.isBlocked(url)) {
-                    Logbook.log("blocked ad request ${url.take(120)}")
+                    Logbook.log("blocked ad request ${Logbook.noQuery(url).take(120)}")
                     // Refused like a blocked request: the player reports a failed ad and moves on.
                     return WebResourceResponse("text/plain", "utf-8", 403, "Blocked", emptyMap(), ByteArrayInputStream(ByteArray(0)))
                 }
@@ -221,13 +221,13 @@ class WebPlayerHost(private val context: Context) : BridgeHost {
                         if (debuggable) Logbook.log("audio proxied ${url.substringAfterLast('/').take(12)}…")
                         return proxied
                     }
-                    Logbook.log("audio proxy failed, the WebView fetches it: ${url.take(110)}")
+                    Logbook.log("audio proxy failed, the WebView fetches it: ${Logbook.noQuery(url).take(110)}")
                 }
                 return null
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
-                Logbook.log("page start ${url.take(120)}")
+                Logbook.log("page start ${Logbook.noQuery(url).take(120)}")
                 mainFrameFailed = false
                 // A load that never ends (measured: a reload's document request answered nothing
                 // for 9 minutes, the page stayed "loading", empty, without the bridge).
@@ -242,7 +242,7 @@ class WebPlayerHost(private val context: Context) : BridgeHost {
 
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
                 if (request.url.host?.contains("spotify") == true)
-                    Logbook.log("load error ${error.errorCode} ${error.description} ${request.url.toString().take(120)}")
+                    Logbook.log("load error ${error.errorCode} ${error.description} ${Logbook.noQuery(request.url.toString()).take(120)}")
                 // ERR_ABORTED: a load this app stopped itself (a timeout, a newer load) — not a failure.
                 if (request.isForMainFrame && request.url.host == PLAYER_HOST && "ERR_ABORTED" !in error.description.toString())
                     playerPageFailed("load error ${error.errorCode}")
@@ -272,7 +272,7 @@ class WebPlayerHost(private val context: Context) : BridgeHost {
             }
 
             override fun onPageFinished(view: WebView, url: String) {
-                Logbook.log("page finished ${url.take(120)}")
+                Logbook.log("page finished ${Logbook.noQuery(url).take(120)}")
                 main.removeCallbacks(loadTimeout)
                 if (url.startsWith(PLAYER_URL) && !mainFrameFailed) { pageFailures = 0; main.removeCallbacks(retryPlayerPage) }
                 _url.value = url

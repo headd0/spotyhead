@@ -90,3 +90,10 @@ fun artistRoute(name: String, id: String = ""): String {
 fun albumRoute(name: String, artist: String = "", id: String = ""): String =
     "${Routes.Album.route}/${android.net.Uri.encode(name.ifBlank { "album" })}" +
         "?artist=${android.net.Uri.encode(artist)}&id=${android.net.Uri.encode(id)}"
+
+/**
+ * Opens a page from outside the page's own UI (a shared link): a second link to the page already
+ * on top reuses it instead of stacking a duplicate.
+ */
+fun androidx.navigation.NavController.navigateSingleTop(route: String) =
+    navigate(route) { launchSingleTop = true }

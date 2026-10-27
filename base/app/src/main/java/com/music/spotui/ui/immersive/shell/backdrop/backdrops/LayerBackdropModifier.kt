@@ -19,6 +19,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
+import androidx.compose.ui.node.currentValueOf
 import androidx.compose.ui.node.invalidateDraw
 import androidx.compose.ui.node.requireGraphicsContext
 import androidx.compose.ui.platform.InspectorInfo
@@ -64,7 +65,7 @@ private class LayerBackdropElement(
 
 private class LayerBackdropNode(
     var backdrop: LayerBackdrop
-) : DrawModifierNode, GlobalPositionAwareModifierNode, Modifier.Node() {
+) : DrawModifierNode, GlobalPositionAwareModifierNode, androidx.compose.ui.node.CompositionLocalConsumerModifierNode, Modifier.Node() {
 
     override fun ContentDrawScope.draw() {
         // Vendored change: record once and composite, rather than upstream's
@@ -103,7 +104,9 @@ private class LayerBackdropNode(
     override fun onAttach() {
         registeredIn = backdrop
         source.layer = requireGraphicsContext().createGraphicsLayer()
+        source.alpha = currentValueOf(LocalBackdropSourceAlpha)
         backdrop.sources.add(source)
+        backdrop.moves++
     }
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {

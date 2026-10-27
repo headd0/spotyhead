@@ -3,6 +3,7 @@ package com.music.spotui.ui.screens
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.AppMuted
+import com.music.spotui.ui.theme.AppAccent
 
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PushPin
@@ -134,8 +135,8 @@ fun LibraryScreen(navController: NavController) {
     val context = LocalContext.current
     // Spotify-style layout toggle: rows or a 3-column grid, persisted across runs.
     var gridView by remember { mutableStateOf(isLibraryGridView(context)) }
-    var searchActive by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
+    var searchActive by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var searchQuery by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     // The filter chips under the title; the chosen one is kept while the screen is open.
     var chip by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(com.music.spotui.data.local.LibraryChip.ALL) }
 
@@ -862,7 +863,7 @@ private fun AccountSheet(
                 Column {
                     Text(account.name.ifBlank { stringResource(R.string.spotify_user) }, color = AppText, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (account.email.isNotBlank()) Text(account.email, color = AppMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (account.plan.isNotBlank()) Text("Spotify ${account.plan}", color = Color(0xFF1DB954), fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    if (account.plan.isNotBlank()) Text(stringResource(R.string.spotify_plan, account.plan), color = AppAccent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
                 }
             }
             HorizontalDivider(color = tone(0xFF2A2A2A))

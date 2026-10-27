@@ -46,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Devices
 import androidx.compose.material.icons.rounded.Lyrics
 import androidx.compose.material.icons.rounded.Pause
@@ -59,6 +60,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -119,8 +121,9 @@ internal fun formatTime(ms: Long): String {
 }
 
 /**
- * The seek bar, with elapsed and remaining either side under it. The playhead is read here, per
- * tick, so the tick recomposes the bar and its two times rather than the player the bar sits in.
+ * The seek bar, with elapsed and remaining either side under it. The playhead is read per tick,
+ * in the bar's draw and in the two times, so a tick redraws the bar and recomposes only the times,
+ * not the player the bar sits in.
  */
 @Composable
 internal fun PlayerScrubber(
@@ -130,35 +133,41 @@ internal fun PlayerScrubber(
     val scrub = rememberPlayerScrub(state.title, state.positionMs, state.durationMs)
     // As many ticks as the bar has pixels to move, as the Classic player's: ~5 a second on a long song.
     val frame = rememberFrameClock(state.playing && !state.buffering, fps = 15)
-    frame.value
-    val shown = scrub.shown(state.positionMs(), state.durationMs)
     Column(Modifier.fillMaxWidth()) {
         ThinSlider(
-            value = shown,
+            value = { frame.value; scrub.shown(state.positionMs(), state.durationMs) },
             onValueChange = scrub::drag,
             onValueChangeFinished = { scrub.release { onSeek((it * state.durationMs).toLong()) } },
             loading = state.buffering && !scrub.scrubbing,
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                // The slider's touch target extends well past the drawn bar: pull the labels back up under it.
-                .offset(y = (-9).dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            val duration = state.durationMs.coerceAtLeast(0L)
-            val elapsed = (shown * duration).toLong()
-            Text(
-                text = formatTime(elapsed),
-                style = Immersive.Caption,
-                color = LocalPlayerTint.current.copy(alpha = 0.55f),
-            )
-            Text(
-                text = "-" + formatTime(duration - elapsed),
-                style = Immersive.Caption,
-                color = LocalPlayerTint.current.copy(alpha = 0.55f),
-            )
-        }
+        ScrubTimes(frame, scrub, state)
+    }
+}
+
+/** The elapsed and remaining times under the seek bar, read per tick of [frame]. */
+@Composable
+private fun ScrubTimes(frame: State<Long>, scrub: PlayerScrub, state: ImmersivePlayerState) {
+    frame.value
+    val shown = scrub.shown(state.positionMs(), state.durationMs)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            // The slider's touch target extends well past the drawn bar: pull the labels back up under it.
+            .offset(y = (-9).dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        val duration = state.durationMs.coerceAtLeast(0L)
+        val elapsed = (shown * duration).toLong()
+        Text(
+            text = formatTime(elapsed),
+            style = Immersive.Caption,
+            color = LocalPlayerTint.current.copy(alpha = 0.55f),
+        )
+        Text(
+            text = "-" + formatTime(duration - elapsed),
+            style = Immersive.Caption,
+            color = LocalPlayerTint.current.copy(alpha = 0.55f),
+        )
     }
 }
 
@@ -458,6 +467,7 @@ internal fun PlayerActionRow(
     lyricsOpen: Boolean,
     queueOpen: Boolean,
     shuffleEnabled: Boolean,
+    smartEnabled: Boolean,
     repeatMode: Int,
     deviceActive: Boolean,
     onToggleLyrics: () -> Unit,
@@ -519,9 +529,13 @@ internal fun PlayerActionRow(
                 if (showQueueModes) {
                     Pill {
                         PillSegment(
-                            icon = Icons.Rounded.Shuffle,
+                            icon = if (smartEnabled) Icons.Rounded.AutoAwesome else Icons.Rounded.Shuffle,
                             contentDescription = stringResource(
-                                if (shuffleEnabled) R.string.immersive_player_shuffle_on else R.string.immersive_player_shuffle_off,
+                                when {
+                                    smartEnabled -> R.string.smart_shuffle_title
+                                    shuffleEnabled -> R.string.immersive_player_shuffle_on
+                                    else -> R.string.immersive_player_shuffle_off
+                                },
                             ),
                             onClick = onToggleShuffle,
                             highlighted = shuffleEnabled,

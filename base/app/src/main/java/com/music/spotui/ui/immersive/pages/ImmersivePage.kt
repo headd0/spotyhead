@@ -185,7 +185,7 @@ internal fun ImmersiveGroupRow(
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    val tint = if (destructive) ImmersiveDestructive else Immersive.Text
+    val tint = if (destructive) Immersive.Destructive else Immersive.Text
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier

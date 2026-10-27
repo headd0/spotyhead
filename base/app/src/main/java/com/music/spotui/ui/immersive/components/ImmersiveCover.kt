@@ -40,6 +40,7 @@ import com.bumptech.glide.integration.compose.ExperimentalGlideComposeApi
 import com.bumptech.glide.integration.compose.GlideImage
 import com.music.spotui.ui.components.spotifyImageUrl
 import com.music.spotui.ui.immersive.Immersive
+import com.music.spotui.ui.look.rememberReduceMotion
 
 /** The hairline every cover carries, so a cover with light edges does not dissolve into the page. */
 fun Modifier.immersiveThumbnailBorder(shape: Shape): Modifier =
@@ -117,7 +118,10 @@ fun ImmersiveCoverPlaceholder(
  */
 @Composable
 fun ImmersivePlayingBars(modifier: Modifier = Modifier) {
+    val reduceMotion = rememberReduceMotion()
     val heights = listOf(0.38f, 0.78f, 0.52f).mapIndexed { index, minimum ->
+        // Under "reduce motion" the bars rest at their low mark instead of dancing.
+        if (reduceMotion) return@mapIndexed minimum
         val transition = rememberInfiniteTransition(label = "immersive playing bar $index")
         val height by transition.animateFloat(
             initialValue = minimum,

@@ -53,9 +53,12 @@ import com.music.spotui.ui.navigation.Routes
 import com.music.spotui.ui.navigation.profileRoute
 import com.music.spotui.ui.screens.AccountBrowser
 
-/** The profile picture as a disc (the first letter of the name until it loads), opening [onClick]. */
+/**
+ * The profile picture as a disc (the first letter of the name until it loads), opening [onClick];
+ * null when the caller takes the tap on a wider area around it.
+ */
 @Composable
-internal fun ProfileDisc(onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun ProfileDisc(onClick: (() -> Unit)?, modifier: Modifier = Modifier) {
     val avatar = ProfileCache.imageUrl
     val initial = ProfileCache.name?.trim()?.firstOrNull()?.uppercase() ?: "•"
     AvatarDisc(

@@ -93,7 +93,9 @@ enum class Action(
     WEBVIEW_AUTH("webview.auth", Level.CRITICAL, Area.OTHER, "Key", "Sign in on a website",
         "myspoti.auth.open({ url, callback }) → myspoti.on('auth'): a full web view with its own cookies, apart from the app's; only the callback address comes back"),
     STORAGE("storage", Level.NORMAL, null, "Save", "Keep its own data",
-        "myspoti.storage get/set/remove (512 KB)");
+        "myspoti.storage get/set/remove (512 KB)"),
+    ATTEST("attest", Level.NORMAL, null, "Fingerprint", "Prove this is Myspoti",
+        "myspoti.attest enroll/publicKey/sign/reset: a signing key of its own in this phone's hardware keystore, so its server can tell its requests come from a genuine Myspoti install");
 
     companion object {
         fun of(key: String) = entries.firstOrNull { it.key == key }

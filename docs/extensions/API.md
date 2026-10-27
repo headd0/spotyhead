@@ -598,6 +598,7 @@ until the user accepts them all with the same tick.
 | `webview.page` | Web | Its own web page | **critical** | takeover | `page` and `message` hooks, `myspoti.page.post` |
 | `webview.auth` | Key | Sign in on a website | **critical** | takeover | `myspoti.auth.open`, `auth` event |
 | `storage` | Save | Keep its own data | normal | shared | `myspoti.storage` (512 KB) |
+| `attest` | Fingerprint | Prove this is Myspoti | normal | shared | `myspoti.attest` (section 10) |
 
 ### 4.1 Old manifests
 
@@ -667,7 +668,7 @@ A script that throws while loading fails to load, with `file:line` in the messag
 |---|---|
 | `myspoti.apiVersion` | `1`. |
 | `myspoti.extension` | `{ id, name, version }` from the manifest. |
-| `myspoti.features` | What this Myspoti understands beyond the first API: `audio.manifest`, `audio.expires`, `audio.quality`, `audio.ahead` (section 3, `audio-source`), `http.all`, `status` (section 3). Missing on an older Myspoti: test `myspoti.features && myspoti.features.indexOf(name) >= 0`. |
+| `myspoti.features` | What this Myspoti understands beyond the first API: `audio.manifest`, `audio.expires`, `audio.quality`, `audio.ahead` (section 3, `audio-source`), `http.all`, `status` (section 3), `attest` (section 10, only when the user granted it). Missing on an older Myspoti: test `myspoti.features && myspoti.features.indexOf(name) >= 0`. |
 | `myspoti.provide(hook, fn)` | Section 3. |
 | `myspoti.on('track' \| 'playback', fn)` | Section 3. Needs `playback.events`. |
 | `myspoti.on('auth', fn)` | Section 3, sign in. Needs `webview.auth`. |
@@ -687,6 +688,7 @@ A script that throws while loading fails to load, with `file:line` in the messag
 | `myspoti.ui.refresh(place)` | Section 3, blocks. The place's action. |
 | `myspoti.page.post(data)` | Section 3, pages. `webview.page`. |
 | `myspoti.spotify.<area>.<method>(...)` | Section 6. |
+| `myspoti.attest.enroll(challenge)` / `.publicKey()` / `.sign(text)` / `.reset()` | Section 10. A signing key of its own in the phone's hardware keystore, with its key attestation, to prove requests to your own server. Needs `attest`. |
 | `myspoti.notify(text)` | A short message on screen, 200 characters, with your extension's name. `notify`. |
 | `myspoti.log(...)`, `console.log/info/warn/error(...)` | Same thing: arguments joined by spaces, objects as JSON, 2000 characters at most. |
 | `myspoti.util.base64Encode(s)` / `base64Decode(s)` | UTF-8 text. Decode throws on bad input. |
@@ -854,7 +856,7 @@ type means optional/nullable. Returns of "—" mean `null`.
 | `skipTo(item: {uri,uid?})` | — | write |  |
 | `moveInQueue(item: {uri,uid?}, target: {uri,uid?}, after = false)` | — | write |  |
 | `setVolume(level: number)` | — | write |  |
-| `setLocalMute(on: boolean)` | `playback.mirror` (critical) | write | Keeps Spotify playing unheard on this phone (`myspoti.features` has `player.localMute` only when the user granted `playback.mirror`). It can keep Spotify playing silently and counts listens on the user's Spotify account, so the user ticks the accept-risk box. Host rules, whatever the script does: honoured only while Myspoti's own local / extension player is playing; one extension at a time; at most one enable per 20 s; cleared by itself on track change, local pause or stop, the local track's duration, and when the extension is disabled, uninstalled, blocked or crashes. Both players show "Spotify mirrored by <extension>", and the Activity log and Logbook record each enable and clear. Existing installs do not have it until the user accepts the action through the update / consent flow. |
+| `setLocalMute(on: boolean)` | `playback.mirror` (critical) | write | Keeps Spotify playing unheard on this phone (`myspoti.features` has `player.localMute` only when the user granted `playback.mirror`). It can keep Spotify playing silently and counts listens on the user's Spotify account, so the user ticks the accept-risk box. Host rules, whatever the script does: honoured only while Myspoti's own local / extension player is playing; one extension at a time; at most one enable per 20 s; cleared by itself on track change, local pause or stop, the local track's duration, and when the extension is disabled, uninstalled, blocked or crashes. Refused while Myspoti's own Connect mirror (Settings, "Count extension plays on Spotify", on by default) plays the song on the page itself, and an extension's mirror ends when that one starts. Both players show "Spotify mirrored by <extension>", and the Activity log and Logbook record each enable and clear. Existing installs do not have it until the user accepts the action through the update / consent flow. |
 | `setSpeed(speed: number)` | — | write |  |
 
 `media(trackUri)` (also `myspoti.spotify.media(trackUri)`) returns the media manifest Spotify sent the
@@ -1124,6 +1126,7 @@ is. `playlists.setCover` takes a JPEG as base64.
 | Time spent waiting for the user to confirm | Not counted |
 | `myspoti.http` | 120 requests/min, 5 MB per response, 20 s per request, https only; `http.all`: 4 at once |
 | `myspoti.spotify` | 60 calls/min, 256 KB of arguments, 1000 items per list, 2 MB per answer |
+| `myspoti.attest` | `sign` 120/min and 64 KB of text; `enroll` 5/hour and a challenge of 128 bytes |
 | Storage | 512 KB (keys and values together) |
 | Sign-in page | One at a time |
 | `myspoti.work.whenOnline()` | 30 s |
@@ -1166,6 +1169,7 @@ to the confirmation prompt below. Give absolute paths.)
 as text; unset ones use the manifest `default`).
 
 What the runner does: every right the manifest asks is granted. Storage is in memory for the run.
+`myspoti.attest` works with a software key kept between runs (section 10).
 `log`, `console`, `notify` and failures go to stderr as `[id] message`. `player` controls print
 `player: <action>` and answer `true`. `myspoti.player.current()` returns the `--title` track.
 `http` is real (same host rules as the app).
@@ -1308,3 +1312,107 @@ store only when it lists at least one).
 ### `raw.request` "Always allow" is per operation
 
 A write the user allows for good is a grant on method + host + path pattern. On a multiplexed endpoint (GraphQL / pathfinder, or any request whose JSON body carries `operationName` or a persisted-query `sha256Hash`) the grant also names that operation: it never covers another one. If no operation can be determined from the body on such an endpoint, "Always allow" is not offered and the user is asked each time. The consent shows the real operation, and the revocation list shows it too (`POST https://host/path [operation name]`). Grants stored before this change on such endpoints without an operation were dropped (the user is asked again). Writes declared in the manifest (`writes`) on a multiplexed path cannot cover operations; the user is asked.
+
+## 10. Prove a request comes from a genuine install (`attest`)
+
+Optional and generic: any extension that talks to **its author's own server** can use it, so that
+the server can tell a request comes from a Myspoti install running that extension, and not from a
+script that pulled a key out of the zip (there is nothing secret in a zip: anyone can read it).
+Action `attest` (normal, "Prove this is Myspoti"): the user sees it at install like the others.
+Without it, every `myspoti.attest` call throws `"attest is not in this extension's manifest
+(actions)"`. No key exists until the extension calls `enroll`. The app makes no request of its own
+for this: your script sends what it gets to your server.
+
+| Call | Does |
+|---|---|
+| `myspoti.attest.enroll(challenge)` | `challenge`: a string from your server, 1 to 128 bytes (UTF-8). Creates, or replaces, an EC P-256 signing key for **this extension** in the Android hardware keystore (StrongBox when the phone has one, else the TEE) with `challenge` as the attestation challenge. Returns `{ publicKey, certChain }`: `publicKey` is the base64 SPKI (DER), `certChain` the base64 DER certificates of the Android key attestation, leaf first. At most 5 an hour. Throws if the phone cannot make such a key. |
+| `myspoti.attest.publicKey()` | The current key's base64 SPKI, or `null` before `enroll`. |
+| `myspoti.attest.sign(text)` | The base64 DER ECDSA-SHA256 signature of the UTF-8 `text` (64 KB at most), made with this extension's key. Throws `"attest.sign: not enrolled ..."` before `enroll`. 120 a minute. |
+| `myspoti.attest.reset()` | Deletes this extension's key. Uninstalling the extension does it too. |
+
+`myspoti.features` has `attest` when the user granted it. The key's alias holds the extension's id
+(`myspoti.ext.attest.<id>`), so an extension can only ever use its own key, never another's. The key
+cannot be exported: it signs only, and only for the extension that owns it, only while the app runs
+that extension. No device identifier (serial number, IMEI) is requested: the chain says what app
+made the key and how the phone's keystore and boot state look.
+
+### What it proves, and what it does not
+
+It proves that the key lives in Android hardware (the attestation's security level is
+StrongBox or TrustedEnvironment, never Software), that **the app package made it** (the attestation
+extension, `attestationApplicationId`, holds the package name and the SHA-256 digest of the
+certificate that signed the app: `app.myspoti` or `app.myspoti.beta`, signed by the key you pin),
+and that your server asked for it (the challenge). Every later signature then comes from that key.
+
+It does **not** prove that the build is untouched: on a rooted phone, or with a patched official
+build that keeps its signature, code can still ask the app to sign things. It does not prove who
+the user is, that the content of a request is true (the extension reports what it saw), or that
+one phone is not signing in a loop for someone: use a per-key rate limit. It is a barrier against
+scripts that copy a key out of a package and against builds signed by anyone else, not against a
+determined owner of a phone.
+
+### It is optional
+
+For the author: your server can still serve clients that did not enrol, or serve them less; Myspoti
+never requires it. For the user: it is one more line in the install prompt, the extension works
+without it for everything else, nothing is sent anywhere by the app, and the key is theirs to lose
+by uninstalling.
+
+### On the server
+
+1. **Challenge.** Give a fresh random challenge (at most 128 bytes) to each enrolment, remember it
+   against the session, accept it once and for a few minutes.
+2. **Verify the chain.** Parse `certChain` (leaf first), check each certificate is signed by the
+   next, and that the last one is one of Google's hardware attestation roots (published in the
+   Android documentation, "Verify hardware-backed key pairs with Key Attestation"). Check none is
+   on Google's revocation list. Check the leaf's public key is the `publicKey` that was sent.
+3. **Read the attestation.** The leaf holds the extension `1.3.6.1.4.1.11129.2.1.17` (key
+   description): check `attestationChallenge` equals your challenge, `attestationSecurityLevel` is
+   StrongBox or TrustedEnvironment, and in the authorization lists that the key is an EC P-256 key
+   with purpose `SIGN`, with no `ALL_APPLICATIONS` and no software-only part.
+4. **Check the app.** In `attestationApplicationId`: the package name is `app.myspoti` (or
+   `app.myspoti.beta` if you accept the beta), and one of the signing certificate digests is the
+   SHA-256 of the release certificate **you choose to pin** (`apksigner verify --print-certs` on
+   the official APK). Optionally also read the root of trust (verified boot, locked bootloader).
+5. **Store** the key against the account or install, with the time and the level you saw.
+6. **Verify each request.** Sign a canonical string that leaves nothing to interpretation:
+   method, path (with the query), a timestamp in seconds, a random nonce and the SHA-256 of the
+   body, one per line. The server rebuilds it from the request it received, verifies the
+   ECDSA-SHA256 DER signature with the stored key, accepts a timestamp within about 60 seconds of
+   its own clock, and keeps each `(key, nonce)` for twice that window to refuse a replay. A key it
+   does not know, or a signature that fails, is refused like any bad credential.
+
+The extension's side:
+
+```js
+var API = 'https://api.example.com';
+
+function enrol() {
+  var c = myspoti.http.get(API + '/attest/challenge').json();            // { challenge }
+  var e = myspoti.attest.enroll(c.challenge);
+  myspoti.http.post(API + '/attest/enrol', { challenge: c.challenge, publicKey: e.publicKey, certChain: e.certChain });
+}
+
+function signedPost(path, body) {
+  if (!myspoti.attest.publicKey()) enrol();
+  var text = JSON.stringify(body);
+  var ts = String(Math.floor(Date.now() / 1000));
+  var nonce = myspoti.util.sha256(ts + Math.random() + text).slice(0, 32);
+  var canonical = ['POST', path, ts, nonce, myspoti.util.sha256(text)].join('\n');
+  return myspoti.http.post(API + path, text, { headers: {
+    'Content-Type': 'application/json',
+    'X-Key': myspoti.util.sha256(myspoti.attest.publicKey()),
+    'X-Timestamp': ts,
+    'X-Nonce': nonce,
+    'X-Signature': myspoti.attest.sign(canonical),
+  } });
+}
+```
+
+(manifest: `"actions": [{ "name": "attest", "why": "Lets my server know this is a real Myspoti" }, { "name": "network", "hosts": ["api.example.com"], "why": "Talks to my server" }]`.)
+
+On a computer, `myspoti-ext` gives each extension a **software** EC P-256 key kept in
+`~/.myspoti-ext/attest/` (or under `$MYSPOTI_EXT_HOME`), and a one-certificate self-signed
+"chain" that says `TEST-ONLY` and carries the challenge in an extension of a private OID. It is
+there to test your signatures and your enrolment flow; a server that verifies the chain as in
+step 2 must refuse it, since it is not hardware-backed and not Google's.

@@ -32,11 +32,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.music.spotui.ui.navigation.MainBottomNavigation
 import com.music.spotui.ui.navigation.MyNavHost
-import com.music.spotui.ui.navigation.Routes
+import com.music.spotui.ui.navigation.navigateSingleTop
 
 
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
@@ -45,20 +44,13 @@ fun App() {
     val bottomBarState = rememberSaveable { (mutableStateOf(true)) }
     val bottomBarPlayerState = rememberSaveable { (mutableStateOf(true)) }
     val navController = rememberNavController()
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-
-    // Control TopBar and BottomBar: on a route change (writing state during composition
-    // forces an extra recomposition pass).
-    val route = navBackStackEntry?.destination?.route
-    LaunchedEffect(route) {
-        when (route) {
-            Routes.Home.route, Routes.Search.route, Routes.Library.route -> bottomBarState.value = true
-            Routes.Album.route -> bottomBarState.value = false
-        }
-    }
 
     // Debug and beta builds: `myspoti-cli nav <route>` (see CliReceiver).
     LaunchedEffect(Unit) { com.music.spotui.cli.CliReceiver.nav.collect { r -> runCatching { navController.navigate(r) } } }
+    // A page the onboarding asked for ("See the extensions").
+    LaunchedEffect(Unit) {
+        com.music.spotui.ui.screens.Setup.openAfter?.let { r -> com.music.spotui.ui.screens.Setup.openAfter = null; runCatching { navController.navigate(r) } }
+    }
 
     UpdatePrompt()
     SupportPrompt()
@@ -71,7 +63,7 @@ fun App() {
         val i = invite?.takeIf { !it.opened } ?: return@LaunchedEffect
         app.myspoti.host.android.MyspotiRuntime.api.ready.first { it }
         i.opened = true
-        navController.navigate(com.music.spotui.ui.navigation.playlistRoute(i.playlistId))
+        navController.navigateSingleTop(com.music.spotui.ui.navigation.playlistRoute(i.playlistId))
     }
 
     // A Blend invitation was opened (see InviteLinks): who invites, and "Join", over the app.
@@ -99,7 +91,7 @@ fun App() {
         val id = uri.substringAfterLast(':')
         com.music.spotui.ui.navigation.PlayerSheet.close()
         runCatching {
-            navController.navigate(when (uri.split(':')[1]) {
+            navController.navigateSingleTop(when (uri.split(':')[1]) {
                 "playlist" -> com.music.spotui.ui.navigation.playlistRoute(id)
                 "album" -> com.music.spotui.ui.navigation.albumRoute("", "", id)
                 "artist" -> com.music.spotui.ui.navigation.artistRoute("artist", id)
@@ -118,11 +110,16 @@ fun App() {
     // Not provided while it is off or unsupported, so nothing is recorded for no reader.
     val glassPage = com.music.spotui.ui.immersive.shell.rememberImmersiveBackdrop()
     val liquidGlass = immersive && com.music.spotui.ui.immersive.shell.rememberLiquidGlassActive()
+    // Without it (Android 12+), the frost blurs the same recording, which follows page and tab
+    // transitions frame by frame where Haze lagged behind.
+    val frostPage = immersive && !liquidGlass && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
     // The floating chrome's fold (iOS 26): pages scroll it through immersiveChromeScroll().
     val chrome = com.music.spotui.ui.immersive.shell.rememberImmersiveChromeState()
     androidx.compose.runtime.CompositionLocalProvider(
+        com.music.spotui.ui.look.LocalReduceMotion provides com.music.spotui.ui.look.rememberReduceMotion(),
         com.music.spotui.ui.immersive.shell.LocalImmersiveHaze provides if (immersive) haze else null,
         com.music.spotui.ui.immersive.shell.LocalImmersiveBackdrop provides if (liquidGlass) glassPage else null,
+        com.music.spotui.ui.immersive.shell.LocalImmersiveFrostPage provides if (frostPage) glassPage else null,
         com.music.spotui.ui.immersive.shell.LocalImmersiveChrome provides if (immersive) chrome else null,
     ) {
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {

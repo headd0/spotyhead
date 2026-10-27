@@ -1,5 +1,6 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.components.wideClickable
 import com.music.spotui.ui.theme.AppText
 
 import androidx.compose.ui.res.stringResource
@@ -78,9 +79,8 @@ fun CategoryScreen(navController: NavController, genre: String, title: String) {
                 contentDescription = stringResource(R.string.accessibility_navigate_back),
                 tint = AppText,
                 modifier = Modifier
+                    .wideClickable(horizontal = 8.dp, vertical = 10.dp) { navController.popBackStack() }
                     .size(40.dp)
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable { navController.popBackStack() }
                     .padding(8.dp)
             )
             Text(

@@ -44,6 +44,14 @@ import dev.chrisbanes.haze.hazeSource
  */
 val LocalImmersiveHaze = compositionLocalOf<HazeState?> { null }
 
+/**
+ * The page recording the frost samples instead of Haze: provided by the host on Android 12+
+ * while Liquid Glass is off. It is the same recording as the Liquid Glass one, which follows a
+ * page or tab transition frame by frame (slide and fade); Haze's sampling kept showing the old
+ * page until the transition ended. Null below Android 12, where Haze does not blur anyway.
+ */
+val LocalImmersiveFrostPage = compositionLocalOf<LayerBackdrop?> { null }
+
 /** A [HazeState] kept for the lifetime of the calling composition. */
 @Composable
 fun rememberImmersiveHazeState(): HazeState = remember { HazeState() }
@@ -53,27 +61,40 @@ fun rememberImmersiveHazeState(): HazeState = remember { HazeState() }
  * scrolling content), not on the bars themselves. No-op when no [LocalImmersiveHaze] is provided.
  *
  * While Liquid Glass is on ([LocalImmersiveBackdrop] provided) it also records the content for
- * the glass to refract, so a page that calls this gets both looks with nothing else to do.
+ * the glass to refract, so a page that calls this gets both looks with nothing else to do. With
+ * [LocalImmersiveFrostPage] provided it records the content there only: the frost reads that.
  */
 @Composable
 fun Modifier.immersiveHazeSource(
     state: HazeState? = LocalImmersiveHaze.current,
     backdrop: LayerBackdrop? = LocalImmersiveBackdrop.current,
+    frost: LayerBackdrop? = LocalImmersiveFrostPage.current,
 ): Modifier {
+    if (backdrop == null && frost != null) return this.layerBackdrop(frost)
     val hazed = if (state == null) this else this.hazeSource(state)
     return if (backdrop == null) hazed else hazed.layerBackdrop(backdrop)
 }
 
 /**
  * Keeps Haze's visual style while sampling at a third of the resolution: a blur this wide hides
- * the missing pixels, and the bars are redrawn on every frame of every scroll.
+ * the missing pixels, and the bars are redrawn on every frame of every scroll. Over the app's own
+ * page ([LocalImmersiveHaze]) with [LocalImmersiveFrostPage] provided, the same frost is drawn
+ * from that recording instead ([immersivePageFrost]).
  */
 @OptIn(ExperimentalHazeApi::class)
+@Composable
 internal fun Modifier.immersiveFrost(
     state: HazeState,
     tint: Color = Immersive.GlassFill.copy(alpha = 0.55f),
     blur: Float = 24f,
-): Modifier = hazeEffect(state) {
+): Modifier {
+    val page = LocalImmersiveFrostPage.current
+    if (page != null && state === LocalImmersiveHaze.current) return this.immersivePageFrost(page, tint, blur)
+    return hazeFrost(state, tint, blur)
+}
+
+@OptIn(ExperimentalHazeApi::class)
+private fun Modifier.hazeFrost(state: HazeState, tint: Color, blur: Float): Modifier = hazeEffect(state) {
     inputScale = HazeInputScale.Fixed(0.33f)
     backgroundColor = Immersive.Page
     tints = listOf(HazeTint(tint))

@@ -788,7 +788,8 @@ private const val SKELETON_PERIOD_MS = 1_400
 
 @Composable
 private fun LyricsSkeleton(modifier: Modifier = Modifier) {
-    val sweep = rememberInfiniteTransition(label = "lyricsSkeleton").animateFloat(
+    // Under "reduce motion" the band stays off the bars: flat placeholders, nothing endless running.
+    val sweep = if (rememberReduceMotion()) null else rememberInfiniteTransition(label = "lyricsSkeleton").animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(SKELETON_PERIOD_MS, easing = LinearEasing)),
@@ -812,7 +813,7 @@ private fun LyricsSkeleton(modifier: Modifier = Modifier) {
                                 .drawWithCache {
                                     val full = column.toPx()
                                     val band = full * 0.45f
-                                    val startX = -band + sweep.value * (full + band * 2)
+                                    val startX = -band + (sweep?.value ?: 0f) * (full + band * 2)
                                     val brush = Brush.horizontalGradient(
                                         colors = listOf(
                                             Color.White.copy(alpha = 0.10f),

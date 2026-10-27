@@ -4,6 +4,8 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.AnimatedContentScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.CubicBezierEasing
@@ -46,6 +48,7 @@ import com.music.spotui.ui.screens.QueueScreen
 import com.music.spotui.ui.screens.SearchScreen
 import com.music.spotui.ui.viewmodel.PlayerViewModel
 import com.music.spotui.ui.immersive.motion.ImmersiveMotion.Pages as IPages
+import com.music.spotui.ui.immersive.motion.ImmersiveMotion.PageFade as IFade
 
 @Composable
 fun MyNavHost(
@@ -78,10 +81,10 @@ fun MyNavHost(
         // from the bottom (see navEnter). The fades put a page in an offscreen layer for
         // their 0.1-0.2 s: the owner's call, a page change read as a hard block without them.
         // The Immersive look pushes pages like a navigation stack (ImmersiveMotion.Pages).
-        enterTransition = { if (immersiveState.value) IPages.enter(reduceState.value)(this) else navEnter(initialState, targetState) },
-        exitTransition = { if (immersiveState.value) IPages.exit(reduceState.value)(this) else navExit(initialState, targetState) },
-        popEnterTransition = { if (immersiveState.value) IPages.popEnter(reduceState.value)(this) else navPopEnter(initialState, targetState) },
-        popExitTransition = { if (immersiveState.value) IPages.popExit(reduceState.value)(this) else navPopExit(initialState, targetState) },
+        enterTransition = { if (immersiveState.value) IPages.enter(reduceState.value)(this) else if (reduceState.value) EnterTransition.None else navEnter(initialState, targetState) },
+        exitTransition = { if (immersiveState.value) IPages.exit(reduceState.value)(this) else if (reduceState.value) ExitTransition.None else navExit(initialState, targetState) },
+        popEnterTransition = { if (immersiveState.value) IPages.popEnter(reduceState.value)(this) else if (reduceState.value) EnterTransition.None else navPopEnter(initialState, targetState) },
+        popExitTransition = { if (immersiveState.value) IPages.popExit(reduceState.value)(this) else if (reduceState.value) ExitTransition.None else navPopExit(initialState, targetState) },
     ){
         page(Routes.Home.route){
             LaunchedEffect(playerState) {
@@ -107,7 +110,7 @@ fun MyNavHost(
         // Older links to the player route open the player sheet over the page instead.
         page(Routes.Player.route){
             LaunchedEffect(Unit) {
-                navHostController.popBackStack()
+                navHostController.popBackStack(Routes.Player.route, inclusive = true)
                 PlayerSheet.show()
             }
         }
@@ -200,21 +203,21 @@ fun MyNavHost(
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            com.music.spotui.ui.screens.ExtensionsScreen(navHostController)
+            if (isImmersive()) com.music.spotui.ui.immersive.pages.ImmersiveExtensionsScreen(navHostController) else com.music.spotui.ui.screens.ExtensionsScreen(navHostController)
         }
         page("${Routes.Extension.route}/{id}", arguments = listOf(navArgument("id") { defaultValue = "" })){ entry ->
             LaunchedEffect(playerState) {
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            com.music.spotui.ui.screens.ExtensionScreen(navHostController, entry.arguments?.getString("id").orEmpty())
+            if (isImmersive()) com.music.spotui.ui.immersive.pages.ImmersiveExtensionScreen(navHostController, entry.arguments?.getString("id").orEmpty()) else com.music.spotui.ui.screens.ExtensionScreen(navHostController, entry.arguments?.getString("id").orEmpty())
         }
         page("${Routes.ExtensionEntry.route}/{id}", arguments = listOf(navArgument("id") { defaultValue = "" })){ entry ->
             LaunchedEffect(playerState) {
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            com.music.spotui.ui.screens.ExtensionEntryScreen(navHostController, entry.arguments?.getString("id").orEmpty())
+            if (isImmersive()) com.music.spotui.ui.immersive.pages.ImmersiveExtensionEntryScreen(navHostController, entry.arguments?.getString("id").orEmpty()) else com.music.spotui.ui.screens.ExtensionEntryScreen(navHostController, entry.arguments?.getString("id").orEmpty())
         }
         // An extension's own page (webview.page), sandboxed.
         page("extension-page/{id}", arguments = listOf(navArgument("id") { defaultValue = "" })){ entry ->
@@ -261,7 +264,7 @@ fun MyNavHost(
             /* We check if it's not null */
             val albumId = navBackStackEntry.arguments?.getString("albumId").orEmpty()
             uId?.let { name ->
-                AlbumByIdScreen(navHostController, name = name, artist = artist, id = albumId)
+                if (isImmersive()) com.music.spotui.ui.immersive.screens.ImmersiveAlbumByIdScreen(navHostController, name = name, artist = artist, id = albumId) else AlbumByIdScreen(navHostController, name = name, artist = artist, id = albumId)
             }
         }
 
@@ -347,7 +350,7 @@ fun MyNavHost(
             }
             val uri = navBackStackEntry.arguments?.getString("uri")
             val name = navBackStackEntry.arguments?.getString("name").orEmpty()
-            uri?.let { com.music.spotui.ui.screens.FolderScreen(navHostController, it, name) }
+            uri?.let { if (isImmersive()) com.music.spotui.ui.immersive.pages.ImmersiveFolderScreen(navHostController, it, name) else com.music.spotui.ui.screens.FolderScreen(navHostController, it, name) }
         }
 
         page("${Routes.LocalPlaylist.route}/{id}") { navBackStackEntry ->
@@ -355,7 +358,7 @@ fun MyNavHost(
                 bottomBarState.value = true
                 bottomBarPlayerState.value = playerState != ""
             }
-            navBackStackEntry.arguments?.getString("id")?.let { com.music.spotui.ui.screens.LocalPlaylistScreen(navHostController, it) }
+            navBackStackEntry.arguments?.getString("id")?.let { if (isImmersive()) com.music.spotui.ui.immersive.pages.ImmersiveLocalPlaylistScreen(navHostController, it) else com.music.spotui.ui.screens.LocalPlaylistScreen(navHostController, it) }
         }
 
         page(
@@ -461,9 +464,25 @@ private fun NavGraphBuilder.page(
             scope.transition.currentState == scope.transition.targetState
         }
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalPageSettled provides settled) {
+    val immersive = isImmersive()
+    // Immersive: the page runs its own fade (ImmersiveMotion.PageFade) and hands it to the Liquid
+    // Glass recording it, which then fades with it on every frame of the transition.
+    val fade = if (!immersive) null else scope.transition.animateFloat(
+        transitionSpec = {
+            val ms = if (targetState == androidx.compose.animation.EnterExitState.Visible) IFade.enterMs else IFade.exitMs
+            tween(ms)
+        },
+        label = "pageFade",
+    ) { if (it == androidx.compose.animation.EnterExitState.Visible) 1f else 0f }
+    val alpha = androidx.compose.runtime.remember(fade) { { fade?.value ?: 1f } }
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalPageSettled provides settled,
+        com.music.spotui.ui.immersive.shell.backdrop.backdrops.LocalBackdropSourceAlpha provides alpha,
+    ) {
         // Immersive look: every page (Classic fallbacks too) sits on its black page colour.
-        Box(Modifier.fillMaxSize().background(if (isImmersive()) com.music.spotui.ui.immersive.Immersive.Page else AppBackground)) { scope.content(entry) }
+        Box(Modifier.fillMaxSize()
+            .then(if (fade == null) Modifier else Modifier.graphicsLayer { this.alpha = fade.value })
+            .background(if (immersive) com.music.spotui.ui.immersive.Immersive.Page else AppBackground)) { scope.content(entry) }
     }
 }
 

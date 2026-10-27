@@ -138,6 +138,14 @@ fun SettingsScreen(navController: NavController) {
                     com.music.spotui.data.api.LyricsApi.forgetAll()
                 },
             )
+            // Songs an extension streams, played by Spotify too (unheard): counted there, seen by Connect.
+            if (com.music.spotui.extensions.Extensions.sources(app.myspoti.extensions.Action.AUDIO_SOURCE).isNotEmpty())
+                OptionRow(
+                    label = stringResource(R.string.settings_connect_mirror_title),
+                    detail = stringResource(R.string.settings_connect_mirror_detail),
+                    checked = com.music.spotui.data.preferences.ConnectMirrorPref.on,
+                    onChecked = { com.music.spotui.data.preferences.ConnectMirrorPref.set(ctx, it) },
+                )
             Divider()
             SourcesBlock(app.myspoti.extensions.Action.AUDIO_SOURCE, navController)
 
@@ -218,26 +226,8 @@ fun SettingsScreen(navController: NavController) {
                 checked = com.music.spotui.data.preferences.SolidNavBar.on,
                 onChecked = { com.music.spotui.data.preferences.SolidNavBar.set(ctx, it) },
             )
-            AccentRow()
+            AccentRow(com.music.spotui.data.preferences.Look.CLASSIC)
             LookRow()
-            // The Immersive look's glass; nothing to switch in Classic.
-            if (com.music.spotui.data.preferences.LookPref.look == com.music.spotui.data.preferences.Look.IMMERSIVE) {
-                val glass = com.music.spotui.ui.immersive.shell.liquidGlassAvailability()
-                OptionRow(
-                    label = stringResource(R.string.settings_liquid_glass_title),
-                    detail = stringResource(
-                        when (glass) {
-                            com.music.spotui.ui.immersive.shell.LiquidGlassAvailability.UNSUPPORTED -> R.string.settings_liquid_glass_unsupported
-                            com.music.spotui.ui.immersive.shell.LiquidGlassAvailability.REDUCED -> R.string.settings_liquid_glass_reduced
-                            com.music.spotui.ui.immersive.shell.LiquidGlassAvailability.AVAILABLE -> R.string.settings_liquid_glass_detail
-                        },
-                    ),
-                    checked = com.music.spotui.data.preferences.LiquidGlassPref.on &&
-                        glass != com.music.spotui.ui.immersive.shell.LiquidGlassAvailability.UNSUPPORTED,
-                    enabled = glass != com.music.spotui.ui.immersive.shell.LiquidGlassAvailability.UNSUPPORTED,
-                    onChecked = { com.music.spotui.data.preferences.LiquidGlassPref.set(ctx, it) },
-                )
-            }
             OrientationRow()
             LanguageRow()
             }
@@ -367,15 +357,15 @@ private fun LookRow() {
     }
 }
 
-/** The app's accent colour, for everyone (the same palette the supporter sheet uses). */
+/** The accent colour of one look, for everyone (the same palette the supporter sheet uses). */
 @Composable
-private fun AccentRow() {
+private fun AccentRow(look: com.music.spotui.data.preferences.Look) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp)) {
         Text(stringResource(R.string.supporter_accent), color = AppText, fontSize = 16.sp)
         Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(14.dp), modifier = Modifier.padding(top = 10.dp)) {
             for (a in com.music.spotui.data.api.SupportReminder.Accent.entries) {
-                val selected = com.music.spotui.data.api.SupportReminder.accent == a
+                val selected = com.music.spotui.data.api.SupportReminder.accentOf(look) == a
                 val name = stringResource(when (a) {
                     com.music.spotui.data.api.SupportReminder.Accent.GREEN -> R.string.color_green
                     com.music.spotui.data.api.SupportReminder.Accent.BLUE -> R.string.color_blue
@@ -388,7 +378,7 @@ private fun AccentRow() {
                         .semantics { contentDescription = name; role = Role.RadioButton }
                         .clip(CircleShape).background(a.color)
                         .then(if (selected) Modifier.border(3.dp, AppText, CircleShape) else Modifier)
-                        .clickable { com.music.spotui.data.api.SupportReminder.setAccent(ctx, a) },
+                        .clickable { com.music.spotui.data.api.SupportReminder.setAccent(ctx, look, a) },
                 )
             }
         }

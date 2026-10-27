@@ -1,5 +1,7 @@
 package com.music.spotui.ui.screens
 
+import com.music.spotui.ui.components.wideClickable
+import com.music.spotui.ui.theme.AppDestructive
 import com.music.spotui.ui.theme.tone
 import com.music.spotui.ui.theme.AppText
 import com.music.spotui.ui.theme.headerTint
@@ -14,6 +16,7 @@ import androidx.compose.ui.res.stringResource
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.async
 import com.music.spotui.ui.components.SkeletonKind
+import com.music.spotui.ui.components.animatedRow
 import com.music.spotui.ui.components.pressable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -124,6 +127,9 @@ class ContextViewModel(
         private val inflight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.Deferred<Unit>>()
         private val prefetchScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
 
+        /** A playlist up to this long is prefetched whole, longer ones by their first page. */
+        private const val WHOLE_PLAYLIST_MAX = 200
+
         /** Pages likely to be opened next (top of the library, home shortcuts), loaded quietly. */
         fun prefetchSoon(pages: List<Pair<String, String>>) {
             prefetchScope.launch {
@@ -149,13 +155,24 @@ class ContextViewModel(
                         "liked" -> api.getLikedPage()
                         else -> api.getPlaylistPage(id)
                     }
-                    val first = flow.first { it !is Response.Loading }
-                    if (first is Response.Success) {
-                        recent[key] = first
+                    // The first page of tracks; a playlist of 200 songs or fewer is waited for whole (as
+                    // PagePrefetch does), so it opens complete rather than cut after its first 100.
+                    var first: Response<ContextPageModel>? = null
+                    val settled = flow.first { r ->
+                        if (r is Response.Loading) return@first false
+                        if (first == null) first = r
+                        r !is Response.Success || type != "playlist" || r.data.complete || r.data.tracks.size > WHOLE_PLAYLIST_MAX
+                    }
+                    val shown = (settled as? Response.Success)?.takeIf { it.data.complete } ?: first
+                    if (shown is Response.Success) {
+                        recent[key] = shown
                         // The hearts are known before the page opens.
-                        val p = first.data
+                        val p = shown.data
                         if (p.type != "liked" && p.type != "liked-artist") SongPlayer.libraryContains(
                             p.tracks.mapNotNull { s -> s.spotifyTrackId.takeIf { it.isNotBlank() }?.let { "spotify:track:$it" } } + p.uri)
+                        // The header's cover (the big one) is on storage before the page draws it.
+                        if (p.coverUri.startsWith("http") && !com.music.spotui.data.DataSaver.metered)
+                            runCatching { com.bumptech.glide.Glide.with(Graph.app).downloadOnly().load(p.coverUri).submit() }
                     }
                 } catch (t: kotlinx.coroutines.CancellationException) {
                     throw t
@@ -221,11 +238,15 @@ class ContextViewModel(
         reload()
     }
 
+    /** Set by [reload]: the next load skips the short-lived caches (whole Liked list, playlist songs). */
+    private var fresh = false
+
     /** After an edit (name, cover, description): the page from the server again. */
     fun reload() {
         val k = key ?: return
         recent.remove(k)
         key = null
+        fresh = true
         // The likes, the members and who added each song are read again with the new list (a
         // song just added showed no face on a collaborative playlist).
         savedChecked = 0
@@ -256,12 +277,13 @@ class ContextViewModel(
                 com.music.spotui.data.offline.OfflineCollections.offlinePage(offlineUri)?.let { fromDisk = true; _page.value = Response.Success(it) }
             if (_page.value !is Response.Success && type == "playlist")
                 com.music.spotui.data.api.ScreenCache.page(id).read()?.let { fromDisk = true; _page.value = Response.Success(it) }
+            val force = fresh.also { fresh = false }
             val flow = when (type) {
                 "album" -> api.getAlbumPage(id)
-                "liked" -> api.getLikedPage()
+                "liked" -> api.getLikedPage(full = force)
                 // id: "<artist id>|<artist name>"
                 "liked-artist" -> api.getLikedByArtistPage(id.substringBefore('|'), id.substringAfter('|', ""))
-                else -> api.getPlaylistPage(id)
+                else -> api.getPlaylistPage(id, force = force)
             }
             // Liked Songs: a like or unlike anywhere puts the list right at once.
             if (type == "liked") {
@@ -480,11 +502,10 @@ fun ContextScreen(navController: NavController, type: String, id: String) {
     Box(modifier = Modifier.fillMaxSize().background(PageBackground)) {
         when (val r = resp) {
             is Response.Loading -> Loader(SkeletonKind.Header)
-            is Response.Error -> Text(
-                r.error,
-                color = AppText,
-                modifier = Modifier.align(Alignment.Center).padding(24.dp),
-            )
+            is Response.Error -> com.music.spotui.ui.components.ErrorRetry(
+                stringResource(R.string.page_load_failed),
+                Modifier.align(Alignment.Center),
+            ) { vm.reload() }
             is Response.Success -> ContextContent(navController, vm, r.data)
         }
     }
@@ -570,7 +591,7 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
                     write = { MyspotiRuntime.api.playlists.leave(p.uri) },
                     onDone = { ok -> if (ok) com.music.spotui.data.api.LibraryEdits.reloadSoon() })
                 navController.navigateUp()
-            }) { Text(stringResource(R.string.playlist_leave_button), color = Color(0xFFF15E6C)) }
+            }) { Text(stringResource(R.string.playlist_leave_button), color = AppDestructive) }
         },
         dismissButton = { androidx.compose.material3.TextButton(onClick = { leaveAsk = false }) { Text(stringResource(R.string.cancel), color = AppText) } },
     )
@@ -692,10 +713,10 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .padding(12.dp)
+                        .wideClickable { navController.navigateUp() }
                         .size(40.dp)
                         .clip(CircleShape)
                         .background(Color.Black.copy(alpha = 0.35f))
-                        .clickable { navController.navigateUp() }
                 ) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = AppText)
                 }
@@ -939,7 +960,7 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
         }
         val (listed, keys) = shown
         itemsIndexed(listed, key = { i, _ -> keys[i] }) { _, song ->
-            com.music.spotui.ui.components.SwipeToQueue(song) { TrackRow(
+            com.music.spotui.ui.components.SwipeToQueue(song, animatedRow()) { TrackRow(
                 song = song,
                 showCover = p.type != "album",
                 isCurrent = song.id == currentSongId,
@@ -993,7 +1014,7 @@ private fun ContextContent(navController: NavController, vm: ContextViewModel, p
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 8.dp).size(40.dp).clip(CircleShape).clickable { navController.navigateUp() },
+            modifier = Modifier.padding(horizontal = 8.dp).wideClickable(horizontal = 8.dp, vertical = 8.dp) { navController.navigateUp() }.size(40.dp),
         ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.accessibility_navigate_back), tint = AppText)
         }

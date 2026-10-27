@@ -25,7 +25,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,6 +66,7 @@ import com.music.spotui.ui.immersive.components.immersiveClickable
 import com.music.spotui.ui.immersive.components.immersiveFeedSkeleton
 import com.music.spotui.ui.immersive.components.immersiveHeroCardWidth
 import com.music.spotui.ui.immersive.shell.ImmersiveFloatingHeader
+import com.music.spotui.ui.immersive.shell.ImmersiveHeaderContentHeight
 import com.music.spotui.ui.immersive.shell.LocalBarControlSize
 import com.music.spotui.ui.immersive.shell.immersiveChromeScroll
 import com.music.spotui.ui.immersive.shell.immersiveHeaderContentPadding
@@ -108,6 +111,12 @@ fun ImmersiveHomeScreen(navController: NavController) {
             onOpen = { route -> showProfile = false; navController.navigate(route) },
             onDismiss = { showProfile = false },
         )
+    }
+
+    // The context playing right now (empty while paused), derived once for every card: a card
+    // only recomposes when its own answer flips, not on every change of the player's state.
+    val playingContext = remember {
+        derivedStateOf { if (Graph.currentSongState.playingState.value) SongPlayer.nowPlaying.value.contextUri else "" }
     }
 
     // Podcasts can be off: their shows and episodes then leave the feed.
@@ -158,14 +167,14 @@ fun ImmersiveHomeScreen(navController: NavController) {
                 feed != null && feed.sections.isNotEmpty() -> {
                     gridSection?.let { section ->
                         item(key = "home:shortcuts") {
-                            ShortcutGrid(navController, section.items.take(8))
+                            ShortcutGrid(navController, section.items.take(8), playingContext)
                         }
                     }
                     carousels.forEachIndexed { index, section ->
                         item(key = "home:section:$index:${section.title}") {
                             // The lead carousel gets the big cards, unless it is a row of artists.
                             val hero = index == 0 && section.items.none { it is HomeItem.Artist }
-                            if (hero) HeroSection(navController, section) else ShelfSection(navController, section)
+                            if (hero) HeroSection(navController, section, playingContext) else ShelfSection(navController, section, playingContext)
                         }
                     }
                     // Sections from extensions (home.sections), after Spotify's own.
@@ -186,11 +195,21 @@ fun ImmersiveHomeScreen(navController: NavController) {
         // The greeting and the profile disc on floating glass; the feed scrolls under it.
         ImmersiveFloatingHeader(title, collapse = rememberTopBarCollapse(listState, 24.dp)) {
             val size = LocalBarControlSize.current
+            // The tap area is the header's full height and reaches past the disc toward the
+            // title, so the small disc of the minimized bar is still easy to hit.
             Box(
-                Modifier.size(size).graphicsLayer { scaleX = size / 44.dp; scaleY = scaleX },
-                contentAlignment = Alignment.Center,
+                Modifier
+                    .height(ImmersiveHeaderContentHeight)
+                    .width(size + 20.dp)
+                    .immersiveClickable(onClick = { showProfile = true }),
+                contentAlignment = Alignment.CenterEnd,
             ) {
-                ProfileDisc(onClick = { showProfile = true })
+                Box(
+                    Modifier.size(size).graphicsLayer { scaleX = size / 44.dp; scaleY = scaleX },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ProfileDisc(onClick = null)
+                }
             }
         }
     }
@@ -231,12 +250,23 @@ private fun HomeItem.contextUri(): String = when (this) {
     is HomeItem.Show -> if (id.isNotBlank() && !isEpisode) "spotify:show:$id" else ""
 }
 
-/** True while this card's album, playlist or artist is the playing context. */
-@Composable
-private fun HomeItem.isPlayingNow(): Boolean {
+/** True while this card's album, playlist or artist is the playing context, [playingContext]. */
+private fun HomeItem.isPlayingIn(playingContext: String): Boolean {
     val uri = contextUri()
-    if (uri.isEmpty()) return false
-    return SongPlayer.nowPlaying.value.contextUri == uri && Graph.currentSongState.playingState.value
+    return uri.isNotEmpty() && playingContext == uri
+}
+
+/**
+ * Keys for the cards of a shelf: the uri they open, or their kind and name for those with none
+ * (an episode). A repeat within one shelf gets a suffix, as a lazy list refuses two equal keys.
+ */
+private fun homeItemKeys(items: List<HomeItem>): List<String> {
+    val seen = HashMap<String, Int>()
+    return items.map { item ->
+        val base = item.contextUri().ifEmpty { "${item::class.simpleName}:${item.name}:${item.imageUrl}" }
+        val count = seen.merge(base, 1, Int::plus) ?: 1
+        if (count == 1) base else "$base#$count"
+    }
 }
 
 @Composable
@@ -249,22 +279,25 @@ private fun HomeItem.cardSubtitle(): String = when (this) {
 
 /** The lead carousel: big artwork cards with the caption over a scrim, the next one peeking in. */
 @Composable
-private fun HeroSection(navController: NavController, section: HomeSection) {
+private fun HeroSection(navController: NavController, section: HomeSection, playingContext: State<String>) {
     Column(Modifier.padding(bottom = 26.dp)) {
         SectionHeader(section.title)
         BoxWithConstraints {
             // Measured: the card has a ceiling as well as a fraction, and the skeleton agrees.
             val cardWidth = immersiveHeroCardWidth(maxWidth)
+            val keys = remember(section.items) { homeItemKeys(section.items) }
             ImmersiveShelfRow {
-                items(section.items.size) { i ->
+                items(section.items.size, key = { keys[it] }) { i ->
                     val item = section.items[i]
+                    // One lambda per card, so the press hint's pointer input is not restarted by a recomposition.
+                    val hint = remember(item) { { prefetchHomeItem(item) } }
                     ImmersiveLargeAlbumCard(
                         title = item.name,
                         subtitle = item.cardSubtitle(),
                         imageUrl = item.imageUrl,
                         onClick = { onHomeItemClick(navController, item) },
-                        modifier = Modifier.width(cardWidth).pressHint { prefetchHomeItem(item) },
-                        playing = item.isPlayingNow(),
+                        modifier = Modifier.width(cardWidth).pressHint(hint),
+                        playing = item.isPlayingIn(playingContext.value),
                     )
                 }
             }
@@ -274,19 +307,21 @@ private fun HeroSection(navController: NavController, section: HomeSection) {
 
 /** A titled row of square cards (round for artists). */
 @Composable
-private fun ShelfSection(navController: NavController, section: HomeSection) {
+private fun ShelfSection(navController: NavController, section: HomeSection, playingContext: State<String>) {
+    val keys = remember(section.items) { homeItemKeys(section.items) }
     ImmersiveShelf(title = section.title) {
-        items(section.items.size) { i ->
+        items(section.items.size, key = { keys[it] }) { i ->
             val item = section.items[i]
+            val hint = remember(item) { { prefetchHomeItem(item) } }
             ImmersiveShelfCard(
                 title = item.name,
                 subtitle = item.cardSubtitle(),
                 imageUrl = item.imageUrl,
                 onClick = { onHomeItemClick(navController, item) },
                 modifier = Modifier.width(com.music.spotui.ui.immersive.components.ImmersiveShelfCardWidth)
-                    .pressHint { prefetchHomeItem(item) },
+                    .pressHint(hint),
                 round = item is HomeItem.Artist,
-                playing = item.isPlayingNow(),
+                playing = item.isPlayingIn(playingContext.value),
             )
         }
     }
@@ -294,7 +329,7 @@ private fun ShelfSection(navController: NavController, section: HomeSection) {
 
 /** The two-column shortcuts the web home starts with: a small cover and a name on a raised tile. */
 @Composable
-private fun ShortcutGrid(navController: NavController, items: List<HomeItem>) {
+private fun ShortcutGrid(navController: NavController, items: List<HomeItem>, playingContext: State<String>) {
     Column(
         modifier = Modifier.padding(horizontal = Immersive.Gutter).padding(bottom = 22.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -302,7 +337,7 @@ private fun ShortcutGrid(navController: NavController, items: List<HomeItem>) {
         items.chunked(2).forEach { rowItems ->
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                 rowItems.forEach { item ->
-                    val playing = item.isPlayingNow()
+                    val playing = item.isPlayingIn(playingContext.value)
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier

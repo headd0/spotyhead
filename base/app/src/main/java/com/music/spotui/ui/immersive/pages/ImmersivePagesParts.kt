@@ -75,12 +75,10 @@ import com.music.spotui.di.Haptics
 import com.music.spotui.ui.immersive.Immersive
 import com.music.spotui.ui.immersive.components.immersiveClickable
 import com.music.spotui.ui.immersive.components.rememberImmersiveOverscrollFactory
+import com.music.spotui.ui.immersive.motion.ImmersiveMotion
 import com.music.spotui.ui.look.rememberReduceMotion
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
-
-/** The red of a destructive swipe or menu entry. */
-internal val ImmersiveDestructive = Color(0xFFFF453A)
 
 /**
  * Sliding pill selector for the two or three views of a page (Songs, Artists, Albums). A
@@ -109,12 +107,12 @@ internal fun ImmersiveSegmentedControl(
             val chosen = index == selectedIndex
             val pill by animateColorAsState(
                 targetValue = if (chosen) Immersive.Accent else Color.Transparent,
-                animationSpec = if (reduceMotion) snap() else tween(160),
+                animationSpec = if (reduceMotion) snap() else tween(ImmersiveMotion.FADE_MS),
                 label = "segment pill",
             )
             val labelColor by animateColorAsState(
                 targetValue = if (chosen) Color.White else Immersive.TextSecondary,
-                animationSpec = if (reduceMotion) snap() else tween(160),
+                animationSpec = if (reduceMotion) snap() else tween(ImmersiveMotion.FADE_MS),
                 label = "segment label",
             )
             Box(
@@ -162,7 +160,7 @@ internal fun ImmersiveSwipeToRemove(key: Any, onRemove: () -> Unit, content: @Co
                 contentAlignment = Alignment.CenterEnd,
                 modifier = Modifier
                     .matchParentSize()
-                    .background(if (armed) ImmersiveDestructive else ImmersiveDestructive.copy(alpha = 0.6f)),
+                    .background(if (armed) Immersive.Destructive else Immersive.Destructive.copy(alpha = 0.6f)),
             ) {
                 Icon(
                     Icons.Rounded.DeleteOutline,
@@ -275,7 +273,7 @@ internal fun ImmersiveSheetRow(
     detail: String? = null,
     destructive: Boolean = false,
 ) {
-    val tint = if (destructive) ImmersiveDestructive else Immersive.Text
+    val tint = if (destructive) Immersive.Destructive else Immersive.Text
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier

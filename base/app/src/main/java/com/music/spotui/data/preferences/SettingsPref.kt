@@ -48,6 +48,23 @@ object AutoplayPref {
 }
 
 /**
+ * "Count extension plays on Spotify" (on by default): a song an extension streams is played by the
+ * Web Player too, unheard, so Spotify counts it and Spotify Connect sees and controls it (see
+ * [com.music.spotui.di.ConnectMirror]). Off: the extension's stream alone, as before.
+ */
+object ConnectMirrorPref {
+    private const val KEY = "connect_mirror"
+    var on by androidx.compose.runtime.mutableStateOf(prefs(com.music.spotui.di.Graph.app).getBoolean(KEY, true))
+        private set
+
+    fun set(c: Context, value: Boolean) {
+        on = value
+        prefs(c).edit().putBoolean(KEY, value).apply()
+        com.music.spotui.di.ConnectMirror.settingChanged()
+    }
+}
+
+/**
  * The automatic update check at launch (on by default: the app behaved that way before this
  * option existed). Off means no check when the app starts — a check asked for in Settings still
  * works, it reads the same release list.

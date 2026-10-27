@@ -83,6 +83,9 @@ interface Host {
      */
     fun whenOnline(extensionId: String) {}
 
+    /** The keys behind `myspoti.attest` ([Action.ATTEST]); null: this host cannot make any, and the script gets an error. */
+    fun attestation(): Attestation? = null
+
     fun userAgent(extensionId: String) = "Myspoti-Extension/$API_VERSION ($extensionId)"
 }
 

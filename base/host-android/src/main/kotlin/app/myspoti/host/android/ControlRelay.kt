@@ -369,6 +369,9 @@ internal class ControlRelay(private val view: WebView, private val fingerprint: 
         // instead, before the page sees the queue (see AdBlock.withoutAds).
         val given = if (url.contains("/track-playback/")) app.myspoti.spotify.bridge.AdBlock.withoutAds(text) else null
         given?.second?.forEach { note -> Logbook.log("ad left out: $note"); ADS_LEFT_OUT.incrementAndGet(); app.myspoti.spotify.report.Refusal402.adStateLeftOut() }
+        // Marked as holding an ad, yet left as it was: why (which marker, what kept it), once per reason.
+        if (given == null && url.contains("/track-playback/") && AD_MARK.containsMatchIn(text))
+            app.myspoti.spotify.bridge.AdBlock.whyKept(text)?.takeIf { it != lastAdKept }?.let { why -> lastAdKept = why; Logbook.log("ad kept in the queue: $why") }
         val sent = given?.first ?: text
         // The songs' media manifests, for extensions to read (spotify.media).
         if (it.code in 200..299 && url.contains("/track-playback/")) app.myspoti.spotify.bridge.MediaManifests.record(sent)
@@ -424,6 +427,8 @@ internal class ControlRelay(private val view: WebView, private val fingerprint: 
     @Volatile private var staleOwn: String? = null
 
     @Volatile private var lastCluster: String? = null
+    /** The last reason an ad-marked reply was left as it was (logged once per reason). */
+    @Volatile private var lastAdKept: String? = null
 
     /**
      * A refused command another route answered 2xx: whether the page's media really plays 10 s
@@ -779,14 +784,15 @@ internal class ControlRelay(private val view: WebView, private val fingerprint: 
                 }}));
               } catch (e) { /* the host keeps its fallback identity */ }
               // The player's media elements, often never added to the document: the bridge
-              // silences them during an ad ("media.mute"); one started then starts silent.
+              // silences them during an ad ("media.mute") or while the song is unheard here
+              // ("media.hush"); one started then starts silent.
               // Silent is a tiny volume, never muted: Chromium pauses muted media of a hidden page.
               const media = new Set();
               window.__mspMedia = media;
               const play = HTMLMediaElement.prototype.play;
               HTMLMediaElement.prototype.play = function () {
                 media.add(this);
-                if (window.__mspMuted) { this.muted = false; this.volume = 0.001; }
+                if (window.__mspMuted || window.__mspHushed) { this.muted = false; this.volume = 0.001; }
                 return play.apply(this, arguments);
               };
               const relayed = /^https:\/\/([a-z0-9-]+\.)*spotify\.com\/(connect-state|track-playback)\/v1\//;

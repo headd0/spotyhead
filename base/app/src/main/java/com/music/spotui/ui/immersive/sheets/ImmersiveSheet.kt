@@ -73,6 +73,7 @@ import com.music.spotui.ui.immersive.components.ImmersiveCover
 import com.music.spotui.ui.immersive.components.ImmersiveSongTitle
 import com.music.spotui.ui.immersive.components.immersiveClickable
 import com.music.spotui.ui.immersive.components.rememberImmersiveOverscrollFactory
+import com.music.spotui.ui.immersive.motion.ImmersiveMotion
 import com.music.spotui.ui.look.rememberArtworkColors
 import com.music.spotui.ui.look.rememberReduceMotion
 
@@ -81,9 +82,6 @@ val ImmersiveSheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 
 /** The ground of a sheet that is not about one cover (BitChord's player drawer, without its blur). */
 private val FlatSheetColor = Color(0xFF121212)
-
-/** How long a sheet takes to warm into its cover's colours the first time it is seen. */
-private const val TINT_FADE_MS = 400
 
 /** What a sheet is painted in: [background] under everything, [accent] for values, ticks and highlights. */
 @Immutable
@@ -120,7 +118,7 @@ fun rememberImmersiveSheetTint(imageUrl: String?): ImmersiveSheetTint {
             Color(ColorUtils.HSLToColor(accent)),
         )
     }
-    val spec = if (rememberReduceMotion()) snap<Color>() else tween(TINT_FADE_MS)
+    val spec = if (rememberReduceMotion()) snap<Color>() else tween(ImmersiveMotion.SHEET_TINT_MS)
     val background by animateColorAsState(target.background, spec, label = "sheetTintBackground")
     val accent by animateColorAsState(target.accent, spec, label = "sheetTintAccent")
     return ImmersiveSheetTint(background, accent)

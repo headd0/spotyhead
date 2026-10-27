@@ -44,6 +44,8 @@ import com.music.spotui.ui.look.rememberReduceMotion
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
+import com.music.spotui.ui.components.wideClickable
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -78,7 +80,7 @@ private val TitleInset = 64.dp
 private val BarControlSize = 44.dp
 
 /** The same controls while the chrome is minimized ([LocalImmersiveChrome]): small glass pills. */
-private val BarControlSizeMinimized = 34.dp
+private val BarControlSizeMinimized = 38.dp
 
 /**
  * The size of a top bar control right now: 44 dp, shrinking to small pills on a spring while the
@@ -152,7 +154,7 @@ fun ImmersiveTopBar(
 ) {
     val page = LocalImmersiveBackdrop.current
     val controlSize = rememberBarControlSize()
-    Box(modifier = modifier.fillMaxWidth()) {
+    Box(modifier = modifier.fillMaxWidth().holdsTouches()) {
         // The glass panel hanging from the top (rounded bottom corners), fading in with the collapse.
         ImmersiveTopGlass(collapse, Modifier.matchParentSize(), hazeState)
         Box(
@@ -181,9 +183,10 @@ fun ImmersiveTopBar(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .padding(start = Immersive.Gutter)
+                        // Taps around the disc count too, out to the screen edge and the bar's height.
+                        .wideClickable(horizontal = Immersive.Gutter, vertical = 12.dp, interactionSource = backSource, onClick = onBack)
                         .size(controlSize)
-                        .immersiveGlassSurface(CircleShape, hazeState, interactionSource = backSource)
-                        .clickable(interactionSource = backSource, indication = null, role = Role.Button, onClick = onBack),
+                        .immersiveGlassSurface(CircleShape, hazeState, interactionSource = backSource),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
@@ -430,7 +433,7 @@ fun ImmersiveFloatingHeader(
     trailing: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val controlSize = rememberBarControlSize()
-    Box(modifier.fillMaxWidth()) {
+    Box(modifier.fillMaxWidth().holdsTouches()) {
         ImmersiveTopGlass(collapse, Modifier.matchParentSize(), hazeState)
         Row(
             modifier = Modifier
@@ -451,5 +454,16 @@ fun ImmersiveFloatingHeader(
                 CompositionLocalProvider(LocalBarControlSize provides controlSize) { trailing() }
             }
         }
+    }
+}
+
+/**
+ * Keeps a tap on the bar's glass from reaching the page under it: being hit at all is what keeps
+ * the page from being hit. Nothing is consumed: a button in the bar drops its tap when it sees the
+ * finger's moves consumed, so consuming here made the bar's buttons miss most taps.
+ */
+private fun Modifier.holdsTouches(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) awaitPointerEvent()
     }
 }

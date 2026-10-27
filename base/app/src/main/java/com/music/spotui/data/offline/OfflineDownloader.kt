@@ -106,11 +106,14 @@ object OfflineDownloader {
 
     /** Re-queues what was waiting when the app last stopped. */
     fun resumePending() {
-        val saved = runCatching {
-            val a = JSONArray(OfflineStore.pendingFile.readText())
-            (0 until a.length()).map { Request.fromJson(a.getJSONObject(it)) }
-        }.getOrDefault(emptyList())
-        if (saved.isNotEmpty()) enqueueAll(saved)
+        // Read off the main thread (the app is already drawing): the queue fills a moment later.
+        scope.launch {
+            val saved = runCatching {
+                val a = JSONArray(OfflineStore.pendingFile.readText())
+                (0 until a.length()).map { Request.fromJson(a.getJSONObject(it)) }
+            }.getOrDefault(emptyList())
+            if (saved.isNotEmpty()) enqueueAll(saved)
+        }
     }
 
     /**

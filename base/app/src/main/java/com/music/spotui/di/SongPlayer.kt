@@ -98,6 +98,10 @@ object SongPlayer {
     private fun intendPlaying() { wantPlayingUntil = SystemClock.elapsedRealtime() + 4000; wantPausedUntil = 0 }
     private fun intendPaused() { wantPausedUntil = SystemClock.elapsedRealtime() + 1500; wantPlayingUntil = 0 }
 
+    /** Myspoti itself asked the engine to play lately (a pick, a play, a skip): not another device's doing. */
+    fun engineIntended(): Boolean =
+        SystemClock.elapsedRealtime() < wantPlayingUntil || pendingTrackId != null || resumeWhenReady
+
     private fun resolvePlaying(paused: Boolean): Boolean {
         val now = SystemClock.elapsedRealtime()
         if (now < wantPlayingUntil) {
@@ -159,6 +163,7 @@ object SongPlayer {
         restoreLastTrack(state)
         restoreRepeat(state)
         scope.launch { api.player.state.collect { s -> if (acceptsSessionUpdates()) applyState(s) } }
+        ConnectMirror.attach()
         // Another device plays (the phone as a remote): the state is read again every few seconds
         // so the notification, the mini player and the slider keep up. Reported: the notification
         // stopped refreshing in the background — this loop waited for _activeDevice, which only a
@@ -484,6 +489,13 @@ object SongPlayer {
             prev = s.previous?.let(::songOf),
             next = s.next?.let(::songOf),
         )
+        // Started or moved on without Myspoti asking (another device, a transfer back here): the
+        // Connect mirror sends it back through the extensions. After this state's own follow-ups.
+        val moved = trackChanged || (!wasPlaying && playing)
+        if (moved || ConnectMirror.waitsBack) {
+            val intended = engineIntended()
+            main.post { if (!LocalPlayer.active.value && !routing) ConnectMirror.onEngine(s, moved, intended) }
+        }
         val state = boundState ?: return
         val holding = SystemClock.elapsedRealtime() < shuffleWantedUntil
         if (holding && s.shuffle == shuffleWanted) shuffleWantedUntil = 0L
@@ -522,20 +534,26 @@ object SongPlayer {
         }
         val mv = com.music.spotui.video.MusicVideoController
         mv.onAudioBuffering(isBuffering, song.spotifyTrackId)
+        // Clips are shown by the Classic player only: under the Immersive look no clip is looked up.
+        val clipsShown = com.music.spotui.data.preferences.LookPref.look == com.music.spotui.data.preferences.Look.CLASSIC
         // Clip lookup only where it can pay off: video wanted, or the player screen
         // is up (toggle then is instant). Looking up every track by default cost
         // searches and full-audio alignment downloads for users who never watch.
-        if (!isBuffering && playing && mv.inForeground && (mv.wantVideo || mv.hasPlayerScreen) && song.spotifyTrackId.isNotBlank())
+        if (clipsShown && !isBuffering && playing && mv.inForeground && (mv.wantVideo || mv.hasPlayerScreen) && song.spotifyTrackId.isNotBlank())
             com.music.spotui.video.MusicVideoController.prepare(song.spotifyTrackId, song.title, song.singer, durationMs)
-        if (!isBuffering && playing && mv.inForeground && app.myspoti.power.EnergySettings.state.value.policy.allowBackgroundLookups) {
+        val lookups = app.myspoti.power.EnergySettings.state.value.policy.allowBackgroundLookups
+        // Lyrics are warmed in the background too (the next song's are there when it starts), but not on a metered network.
+        if (!isBuffering && playing && lookups && (mv.inForeground || !com.music.spotui.data.DataSaver.metered)) {
             com.music.spotui.data.api.LyricsApi.prefetch(lyricsTrack(song))
             _nowPlaying.value.next?.let { com.music.spotui.data.api.LyricsApi.prefetch(lyricsTrack(it)) }
+        }
+        if (!isBuffering && playing && mv.inForeground && lookups) {
             // The next song's clip is looked up now, so its button is there when it starts. The
             // controller itself stays off under the data saver; a Spotify limit holds it too, as
             // it holds every other request. Only for someone who has the player open or wants
             // the clip: a lookup downloads ~145 s of audio, too much data and battery to spend on
             // every song for a user who never looks at the player.
-            if ((mv.wantVideo || mv.hasPlayerScreen) && !MyspotiRuntime.host.licenseLimited()) _nowPlaying.value.next?.takeIf { it.spotifyTrackId.isNotBlank() && it.durationMs > 0 }?.let {
+            if (clipsShown && (mv.wantVideo || mv.hasPlayerScreen) && !MyspotiRuntime.host.licenseLimited()) _nowPlaying.value.next?.takeIf { it.spotifyTrackId.isNotBlank() && it.durationMs > 0 }?.let {
                 // Without the song's length the match could not be checked, so nothing is cached for it.
                 mv.prefetch(it.spotifyTrackId, it.title, it.singer, it.durationMs.toLong())
             }
@@ -552,10 +570,15 @@ object SongPlayer {
         }
     }
 
-    /** Back from the local player: the page is heard again if an extension's mirror had muted it. */
-    fun unmuteMirror() { com.music.spotui.extensions.Extensions.mirrorReset("the local player stopped"); unmuteMirrorNow() }
+    /** Back from the local player: the page is heard again if a mirror (an extension's, or the Connect mirror) had muted it. */
+    fun unmuteMirror() {
+        com.music.spotui.extensions.Extensions.mirrorReset("the local player stopped")
+        // The Connect mirror unmutes the page itself, after pausing the song it mirrored.
+        if (!ConnectMirror.stop("the local player stopped")) unmuteMirrorNow()
+    }
 
-    fun unmuteMirrorNow() { if (api.player.localMute) command { api.player.setLocalMute(false) } }
+    /** The page heard again, unless the Connect mirror holds it (an extension's mirror ending must not unmute it then). */
+    fun unmuteMirrorNow() { if (api.player.localMute && !ConnectMirror.running) command { api.player.setLocalMute(false) } }
 
     /** The local player's state for the mirror guard: playing, track uri, duration. */
     fun localSnapshot3(): Triple<Boolean, String?, Long> =
@@ -643,6 +666,8 @@ object SongPlayer {
                     return@withLock
                 }
                 if (gen != transportGen.get()) return@withLock
+                // A Connect mirror just ended: the page is heard again before this command reaches it.
+                ConnectMirror.awaitEnded()
                 val checkLater = pullBack && checkAfter && _activeDevice.value == null
                 if (pullBack && !checkLater && api.ready.value) takeBackPlayback()
                 // A cancellation of the caller is never swallowed (it must unwind); only the
@@ -720,10 +745,12 @@ object SongPlayer {
      * audio-source extensions: asked first when one is on ([askExtensions]), they play it in the
      * local player with the rest as the queue; a miss plays on Spotify as before. Without
      * [songs], the song is looked up on Spotify (a link, Recents, an extension's block).
+     * [alone]: no list at all, not even the one that registered the track (a search hit), so
+     * Spotify goes on with its own autoplay of related songs instead of, say, Liked Songs.
      */
     fun playSong(
         song: String, context: Context? = null, contextUri: String? = null, order: List<String>? = null, positionMs: Long? = null,
-        songs: List<SongsModel>? = null, askExtensions: Boolean = true,
+        songs: List<SongsModel>? = null, askExtensions: Boolean = true, alone: Boolean = false,
     ) {
         // Data saver on mobile data: Spotify can't stream, only downloads and Local Files play.
         if (com.music.spotui.data.DataSaver.active) {
@@ -734,9 +761,9 @@ object SongPlayer {
         }
         val routedId = if (song.startsWith("episode:")) null else spotifyTrackIdForPlayback(song)
         if (askExtensions && com.music.spotui.extensions.AudioRoute.asks(routedId, com.music.spotui.extensions.Extensions.hasAudioSource())) {
-            val ctx = (contextUri ?: contextRegistry[song]).orEmpty()
+            val ctx = if (alone) "" else (contextUri ?: contextRegistry[song]).orEmpty()
             val shuffle = isShuffleOn()
-            playThroughExtensions(routedId!!, songs?.firstOrNull { it.spotifyTrackId == routedId }, knownContextName(ctx), { playSong(song, context, contextUri, order, positionMs, askExtensions = false) }) { isLatest, shown ->
+            playThroughExtensions(routedId!!, songs?.firstOrNull { it.spotifyTrackId == routedId }, knownContextName(ctx), { playSong(song, context, contextUri, order, positionMs, askExtensions = false, alone = alone) }) { isLatest, shown ->
                 com.music.spotui.extensions.ExtensionAudio.route(routedId, songs, knownContextName(ctx), shuffle, ctx, isLatest, shown, positionMs ?: 0L)
             }
             return
@@ -750,7 +777,7 @@ object SongPlayer {
         val episodeId = song.removePrefix("episode:").takeIf { song.startsWith("episode:") }
         val trackId = episodeId ?: spotifyTrackIdForPlayback(song) ?: return
         val itemUri = if (episodeId != null) "spotify:episode:$episodeId" else SPOTIFY_TRACK_PREFIX + trackId
-        val ctx = contextUri ?: contextRegistry[song]
+        val ctx = if (alone) null else contextUri ?: contextRegistry[song]
         // What a smart shuffle ending brings back: the order of the last play that was not one.
         if (ctx != null) {
             val sent = order?.takeIf { ctx == contextUri }
@@ -923,6 +950,34 @@ object SongPlayer {
         app.myspoti.host.android.Logbook.log("audio: resume of $id asked to the extensions")
         playSong(np.uri, contextUri = np.contextUri.ifBlank { null }, positionMs = getCurrentPosition(), songs = songs)
         return true
+    }
+
+    /**
+     * A song picked on another device while the Connect mirror played: asked to the extensions as a
+     * pick here is, from where the page is, with the page's queue after it; Spotify plays it when they
+     * have nothing. An episode is Spotify's own and already plays there: it is only heard again.
+     */
+    fun followRemotePlay(item: app.myspoti.api.NowPlaying, contextUri: String?, positionMs: Long) {
+        if (!item.uri.startsWith(SPOTIFY_TRACK_PREFIX)) {
+            ConnectMirror.stop("${item.uri} picked on another device", pausePage = false)
+            LocalPlayer.stop()
+            return
+        }
+        val after = apiQueue?.let { it.queued + it.nextUp }.orEmpty().filter { it.uri.startsWith(SPOTIFY_TRACK_PREFIX) && it.uri != item.uri }
+        playSong(item.uri, contextUri = contextUri?.ifBlank { null }, positionMs = positionMs.takeIf { it > 0 },
+            songs = listOf(songOf(item)) + after.map(::songOf))
+    }
+
+    /**
+     * Playback came back to this phone (a transfer from another device, or picked here) after the
+     * Connect mirror had handed it away: Spotify plays it here now, heard; the song goes back to the
+     * extensions from where it is, as a resume does.
+     */
+    fun backThroughExtensions() {
+        if (LocalPlayer.active.value || routing || !com.music.spotui.data.preferences.ConnectMirrorPref.on) return
+        if (api.player.state.value?.isPaused != false) return
+        _activeDevice.value = null
+        if (resumeThroughExtensions()) app.myspoti.host.android.Logbook.log("mirror: playback back on this phone, the extensions play it again")
     }
 
     /** The song being resolved, as if it played (paused, loading): screens, notification, lyrics. */
@@ -1672,6 +1727,7 @@ object SongPlayer {
             val at = LocalPlayer.position()
             val wasPlaying = LocalPlayer.isPlaying()
             Log.i(TAG, "local song to ${device.name}: $track in $context at $at ms")
+            ConnectMirror.leaving(device.name)
             LocalPlayer.stop()
             command {
                 api.devices.transfer(device.id)
@@ -1905,7 +1961,8 @@ object SongPlayer {
         // What the page reported last (the screens may already show the song asked for).
         engineUriBeforeLocal = lastPageUri
         engineRepaused = false
-        if (playing) command { api.player.pause() }
+        // The Connect mirror's page goes on to the new song itself (or is paused by it if that one is not mirrored).
+        if (playing && !ConnectMirror.running) command { api.player.pause() }
         playing = false
         // The local player keeps the output open itself; the engine's states, which
         // would close the silent stream, are ignored while it plays.
@@ -1921,9 +1978,13 @@ object SongPlayer {
      * The engine reports playing while a local file plays. Two streams must never play
      * at once: a pause that did not take (the engine was not ready) is sent once more;
      * anything else is Spotify taking over (a Connect "play on this phone", a resume from
-     * another device), and the local player yields. True when the state is to be ignored.
+     * another device), and the local player yields; with the Connect mirror on, the local player
+     * follows those commands instead (see [ConnectMirror]). True when the state is to be ignored.
      */
     private fun engineWhileLocal(s: PlayerState): Boolean {
+        // The Connect mirror's page: its states are another device's commands for the local player
+        // to follow, or the echo of the mirror's own; never a takeover.
+        if (ConnectMirror.running) { ConnectMirror.onWeb(s); return true }
         if (s.isPaused) return true
         // An extension mirrors its own song in the page, muted: that is not the engine taking over.
         if (api.player.localMute) return true
@@ -1970,6 +2031,7 @@ object SongPlayer {
             pushNotification(song.copy(coverUri = cover), liked)
             if (songChanged) refreshCurrentLiked()
             com.music.spotui.extensions.Extensions.mirrorTick(isPlaying, uri)
+            ConnectMirror.onLocal(t, isPlaying, pos, dur)
             val source = if (t.uri.scheme == "file") com.music.spotui.data.local.ListenHistory.Source.DOWNLOAD
                 else com.music.spotui.data.local.ListenHistory.Source.LOCAL
             trackListen("local:${t.id}", song, source, isPlaying)

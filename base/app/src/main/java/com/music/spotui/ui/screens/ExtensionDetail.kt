@@ -75,7 +75,7 @@ internal fun authorLine(author: String, repo: String?): String {
 
 /** Updates from the repository are refused: its host ids changed (re-registered or transferred). */
 @Composable
-private fun RepoChangedWarning() {
+internal fun RepoChangedWarning() {
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(Warning.copy(alpha = 0.10f)).padding(12.dp)) {
         Text(stringResource(R.string.update_repo_changed_title), color = Warning, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Text(stringResource(R.string.update_repo_changed_body), color = AppMuted, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp))
@@ -125,7 +125,7 @@ private fun Detail(label: Int, value: String, mono: Boolean = false) {
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun Tags(tags: List<String>) {
+internal fun Tags(tags: List<String>) {
     if (tags.isEmpty()) return
     FlowRow(Modifier.padding(horizontal = 20.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         tags.forEach { ExtPill("#$it", AppMuted, tone(0xFF2A2A2A)) }
@@ -353,7 +353,12 @@ fun ExtensionScreen(navController: NavController, id: String) {
         confirmButton = {
             TextButton(onClick = {
                 uninstall = false
-                scope.launch { Extensions.uninstall(id); navController.popBackStack() }
+                // Back out only if the page is still the one on top (the uninstall takes a moment).
+                val page = navController.currentBackStackEntry
+                scope.launch {
+                    Extensions.uninstall(id)
+                    if (navController.currentBackStackEntry == page) navController.popBackStack()
+                }
             }) { Text(stringResource(R.string.extension_uninstall), color = Warning) }
         },
         dismissButton = { TextButton(onClick = { uninstall = false }) { Text(stringResource(R.string.extensions_cancel), color = AppText) } },
@@ -361,21 +366,30 @@ fun ExtensionScreen(navController: NavController, id: String) {
     InstallPrompt()
 }
 
+/** An option of the extension (manifest `settings`) as text: what the user set, else its default. */
+internal fun settingInitial(id: String, s: Setting): String {
+    val stored = Extensions.settingValues(id)[s.key]
+    return (stored?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) }.getOrNull() } ?: s.default)
+        ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }.orEmpty()
+}
+
+/** Saves [v] as JSON, typed as the option is; a number that is not one saves nothing. */
+internal fun saveSetting(id: String, s: Setting, v: String) {
+    val json = when (s.type) {
+        "toggle" -> JsonPrimitive(v == "true").toString()
+        "number" -> v.toLongOrNull()?.let { JsonPrimitive(it).toString() } ?: v.toDoubleOrNull()?.let { JsonPrimitive(it).toString() }
+        else -> JsonPrimitive(v).toString()
+    }
+    Extensions.setSetting(id, s.key, json)
+}
+
 /** One of the extension's options (manifest `settings`), saved as JSON as it changes. */
 @Composable
 private fun SettingEditor(id: String, s: Setting) {
-    val stored = remember(id, s.key) { Extensions.settingValues(id)[s.key] }
-    val initial = (stored?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) }.getOrNull() } ?: s.default)
-        ?.let { runCatching { it.jsonPrimitive.contentOrNull }.getOrNull() }.orEmpty()
-    var value by remember(id, s.key) { mutableStateOf(initial) }
+    var value by remember(id, s.key) { mutableStateOf(settingInitial(id, s)) }
     fun save(v: String) {
         value = v
-        val json = when (s.type) {
-            "toggle" -> JsonPrimitive(v == "true").toString()
-            "number" -> v.toLongOrNull()?.let { JsonPrimitive(it).toString() } ?: v.toDoubleOrNull()?.let { JsonPrimitive(it).toString() }
-            else -> JsonPrimitive(v).toString()
-        }
-        Extensions.setSetting(id, s.key, json)
+        saveSetting(id, s, v)
     }
     when (s.type) {
         "toggle" -> SwitchRow(s.label, s.description, value == "true") { save(it.toString()) }
@@ -411,7 +425,7 @@ private fun SettingEditor(id: String, s: Setting) {
 // ── GitHub: the update card, report, rating ──
 
 /** The toast after "Check for updates". */
-private fun checkResult(r: ExtensionUpdates.Result): Int = when (r) {
+internal fun checkResult(r: ExtensionUpdates.Result): Int = when (r) {
     ExtensionUpdates.Result.UP_TO_DATE, ExtensionUpdates.Result.NOT_FROM_GITHUB -> R.string.extension_check_up_to_date
     ExtensionUpdates.Result.APPLIED -> R.string.extension_check_applied
     ExtensionUpdates.Result.WAITING -> R.string.update_check_waiting
@@ -431,7 +445,7 @@ private fun checkResult(r: ExtensionUpdates.Result): Int = when (r) {
  * A protected surface, like the install prompt.
  */
 @Composable
-private fun UpdateNeedsOk(name: String, from: String, p: com.music.spotui.extensions.PendingUpdate, onAccept: () -> Unit, onKeep: () -> Unit) {
+internal fun UpdateNeedsOk(name: String, from: String, p: com.music.spotui.extensions.PendingUpdate, onAccept: () -> Unit, onKeep: () -> Unit) {
     com.music.spotui.extensions.ProtectedSurfaceEffect(app.myspoti.extensions.ProtectedSurface.INSTALL)
     val critical = p.changes.any { it.critical }
     val tint = if (critical) Warning else AppAccent
@@ -465,7 +479,7 @@ private fun UpdateNeedsOk(name: String, from: String, p: com.music.spotui.extens
  * until the user accepts all it lists, once, with the same tick as the install prompt.
  */
 @Composable
-private fun RefusedNeedsOk(refused: List<Ask>, onAccept: () -> Unit) {
+internal fun RefusedNeedsOk(refused: List<Ask>, onAccept: () -> Unit) {
     com.music.spotui.extensions.ProtectedSurfaceEffect(app.myspoti.extensions.ProtectedSurface.INSTALL)
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).clip(RoundedCornerShape(12.dp)).background(Warning.copy(alpha = 0.10f)).padding(12.dp)) {
         Text(stringResource(R.string.extension_refused_title), color = AppText, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -519,7 +533,7 @@ private fun ReportButton(id: String, version: String, repo: String?, sha256: Str
 
 /** 👍 / 👎 on the extension's ratings issue; hidden while the GitHub OAuth app is not set ([app.myspoti.extensions.GitHubAuth.enabled]). */
 @Composable
-private fun RateButtons(repo: String) {
+internal fun RateButtons(repo: String) {
     if (!app.myspoti.extensions.GitHubAuth.enabled) return
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
