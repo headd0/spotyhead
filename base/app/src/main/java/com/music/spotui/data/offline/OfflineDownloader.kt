@@ -81,7 +81,7 @@ object OfflineDownloader {
         }
     }
 
-    private class Unavailable(message: String) : Exception(message)
+    private class Unavailable(message: String, cause: Throwable? = null) : Exception(message, cause)
 
     /** Two AAC encodes at once at most: the CPU stays free for the rest of the app. */
     private val encodeSlots = kotlinx.coroutines.sync.Semaphore(2)
@@ -458,18 +458,7 @@ object OfflineDownloader {
             }
         }.getOrNull() ?: throw Unavailable("the source did not send a FLAC file")
         
-        // Check length with more tolerance for FLAC files
-        try {
-            checkLength(seconds.toLong(), meta)
-        } catch (e: Unavailable) {
-            // FLAC files often have extended outros or live versions - be more lenient
-            val diff = kotlin.math.abs(seconds - (meta.durationMs / 1000))
-            if (diff <= 30) {
-                Log.w(TAG, "${meta.title}: FLAC length mismatch ${seconds}s vs ${meta.durationMs/1000}s but within tolerance, allowing")
-            } else {
-                throw e  // Only fail if difference is extreme
-            }
-        }
+        checkLength(seconds.toLong(), meta)
         
         Log.d(TAG, "${meta.title}: FLAC ${seconds}s header check, labelled ${bitDepth ?: "-"}-bit")
     }
@@ -483,31 +472,14 @@ object OfflineDownloader {
                 .firstOrNull { it.getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
                 ?: throw Unavailable("the source did not send an audio file")
             if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) format.getLong(android.media.MediaFormat.KEY_DURATION) / 1_000_000 else -1L
-        } catch (e: IOException) {
-            // Some files have format issues but are still playable - be more lenient
-            Log.w(TAG, "${meta.title}: Could not extract metadata: ${e.message}, allowing file")
-            return  // Allow file even if we can't verify duration
+        } catch (e: Unavailable) {
+            throw e
         } catch (e: Exception) {
-            // MediaExtractor can throw various exceptions - log and allow
-            Log.w(TAG, "${meta.title}: MediaExtractor error: ${e.message}, allowing file")
-            return  // Allow file even if verification failed
+            throw Unavailable("the source did not send readable audio: ${e.message ?: e.javaClass.simpleName}", e)
         } finally {
             extractor.release()
         }
-        // Only check length if we successfully extracted duration
-        if (seconds > 0) {
-            try {
-                checkLength(seconds, meta)
-            } catch (e: Unavailable) {
-                // Length mismatch - log but allow if within reasonable bounds (30s tolerance)
-                val diff = kotlin.math.abs(seconds - (meta.durationMs / 1000))
-                if (diff <= 30) {
-                    Log.w(TAG, "${meta.title}: Length mismatch ${seconds}s vs ${meta.durationMs/1000}s but within tolerance, allowing")
-                } else {
-                    throw e  // Only fail if difference is extreme
-                }
-            }
-        }
+        if (seconds > 0) checkLength(seconds, meta)
     }
 
     private fun checkLength(seconds: Long, meta: Meta) {

@@ -25,10 +25,14 @@ class OfflineDownloaderTest {
 
     @Test fun lengthMismatchRefusesPreviewsAndOtherVersions() {
         assertNull(OfflineDownloader.lengthMismatch(163, 163_400))
+        assertNull(OfflineDownloader.lengthMismatch(158, 163_400))   // 5 seconds trimmed
         assertNull(OfflineDownloader.lengthMismatch(160, 163_400))   // a few seconds trimmed
-        assertNull(OfflineDownloader.lengthMismatch(175, 163_400))   // trailing silence
+        assertNull(OfflineDownloader.lengthMismatch(178, 163_400))   // 15 seconds of trailing silence
+        assertNull(OfflineDownloader.lengthMismatch(175, 163_400))
         assertNull(OfflineDownloader.lengthMismatch(30, 0))          // the song's length unknown
+        assertTrue(OfflineDownloader.lengthMismatch(157, 163_400)!!.contains("preview"))
         assertTrue(OfflineDownloader.lengthMismatch(30, 163_400)!!.contains("preview"))
+        assertTrue(OfflineDownloader.lengthMismatch(179, 163_400)!!.contains("another version"))
         assertTrue(OfflineDownloader.lengthMismatch(312, 163_400)!!.contains("another version"))
     }
 
