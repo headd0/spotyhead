@@ -451,10 +451,12 @@ class ContextViewModel(
         // from its file when the whole list is downloaded (it used to stream anyway).
         val app = Graph.app
         val store = com.music.spotui.data.offline.OfflineStore
-        val limited = com.music.spotui.data.DataSaver.active || !store.isOnline(app)
+        val isOffline = com.music.spotui.data.offline.OfflineMode.enabled || !store.isOnline(app)
+        val isSaver = com.music.spotui.data.DataSaver.active
+        val limited = isOffline || isSaver
         val ids = com.music.spotui.data.offline.LocalPlayPlan.localIds(
             sort.apply(p.tracks).map { it.spotifyTrackId }, song.spotifyTrackId, p.complete,
-            offline = !store.isOnline(app), dataSaver = com.music.spotui.data.DataSaver.active, isDownloaded = store::isDownloaded,
+            offline = isOffline, dataSaver = isSaver, isDownloaded = store::isDownloaded,
         )
         if (ids != null) {
             val local = ids.mapNotNull { store.tracks[it] }
@@ -462,6 +464,11 @@ class ContextViewModel(
             if (limited && local.size < p.tracks.size)
                 android.widget.Toast.makeText(app, app.getString(R.string.offline_only_downloaded, local.size, p.tracks.size), android.widget.Toast.LENGTH_SHORT).show()
             com.music.spotui.di.LocalPlayer.play(local.map(store::toLocalTrack), at, shuffle = state.shuffle.value, context = p.name, contextUri = p.uri)
+            return
+        }
+        if (limited) {
+            val res = if (com.music.spotui.data.offline.OfflineMode.enabled) R.string.offline_track_unavailable else R.string.data_saver_blocked
+            android.widget.Toast.makeText(app, app.getString(res), android.widget.Toast.LENGTH_SHORT).show()
             return
         }
         // An extension that gives songs' audio (audio-source): the list plays in the local

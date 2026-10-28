@@ -141,8 +141,15 @@ object OfflineDownloader {
             return
         }
         if (auto) {
-            // Automatic downloads wait for Wi-Fi (never the user's mobile data): the next sync takes them.
-            if (com.music.spotui.data.DataSaver.metered || !OfflineStore.isOnline(Graph.app)) { OfflineCollections.waitForWifi(); return }
+            // Automatic downloads wait for Wi-Fi, and never run while Offline Mode is on.
+            if (OfflineMode.enabled || com.music.spotui.data.DataSaver.metered || !OfflineStore.isOnline(Graph.app)) {
+                if (!OfflineMode.enabled) OfflineCollections.waitForWifi()
+                return
+            }
+        } else if (OfflineMode.enabled) {
+            scope.launch(Dispatchers.Main) {
+                android.widget.Toast.makeText(Graph.app, app.myspoti.engine.R.string.download_offline_paused, android.widget.Toast.LENGTH_LONG).show()
+            }
         } else if (com.music.spotui.data.DataSaver.metered) {
             // Asked for by the user on mobile data: it goes ahead, but they are told.
             scope.launch(Dispatchers.Main) {
@@ -177,6 +184,15 @@ object OfflineDownloader {
         running.remove(trackId)?.cancel()
         OfflineStore.status.remove(trackId)
         requests.remove(trackId)
+        dropTemps(trackId)
+    }
+
+    /**
+     * Cancels transfers in flight without dropping them from the queue: Offline Mode (or
+     * logout's pause) so they resume later instead of sitting as a running job with no worker.
+     */
+    fun holdTransfers() {
+        running.values.forEach { it.cancel() }
     }
 
     /**
@@ -234,9 +250,10 @@ object OfflineDownloader {
     private suspend fun work(r: Request) {
         // Cancelled while it waited in the queue.
         if (synchronized(pending) { !pending.containsKey(r.trackId) }) return
-        // Data saver on mobile data: downloads wait for Wi-Fi.
-        while (com.music.spotui.data.DataSaver.active) {
-            kotlinx.coroutines.delay(5_000)
+        // Offline Mode, or the data saver on mobile data: wait, shown as Waiting, not as a stuck download.
+        while (transfersHeld()) {
+            setStatus(r.trackId, OfflineStatus.Waiting)
+            delay(1_000)
             if (synchronized(pending) { !pending.containsKey(r.trackId) }) return
         }
         val job = scope.launch {
@@ -248,13 +265,19 @@ object OfflineDownloader {
                 withContext(Dispatchers.Main) { requests.remove(r.trackId) }
                 null
             } catch (e: CancellationException) {
+                dropTemps(r.trackId)
+                // Still queued (Offline Mode held the transfer): put it back so another worker takes it.
+                if (synchronized(pending) { pending.containsKey(r.trackId) }) {
+                    setStatus(r.trackId, OfflineStatus.Waiting)
+                    queue.trySend(r)
+                }
                 throw e
             } catch (e: Unavailable) {
                 Log.i(TAG, "${r.title}: ${e.message}")
                 OfflineStatus.Unavailable
             } catch (t: Throwable) {
                 Log.w(TAG, "${r.title} failed", t)
-                OfflineStatus.Failed
+                classifyFailure(t)
             }
             synchronized(pending) { pending.remove(r.trackId); savePending() }
             if (outcome != null) setStatus(r.trackId, outcome)
@@ -266,6 +289,11 @@ object OfflineDownloader {
 
     private suspend fun download(r: Request): OfflineTrack {
         if (!isDownloadsEnabled(Graph.app)) throw Unavailable("downloads are off")
+        val usable = OfflineStore.usableBytes()
+        // For transcoding (FLAC→AAC), we need 2x the file size. Use 30MB as a safe estimate.
+        if (!enoughSpace(usable, 30L * 1024 * 1024)) {
+            throw IOException("not enough storage space")
+        }
         val quality = qualityOf(r)
         val tmp = OfflineStore.tmpDir
         val audioTmp = File(tmp, "${r.trackId}.part")
@@ -282,7 +310,7 @@ object OfflineDownloader {
             if (file.lossy != null) {
                 // A small file as the source served it (M4A, MP3): kept as it is.
                 out = File(OfflineStore.audioDir, "${r.trackId}.${file.lossy}")
-                if (!audioTmp.renameTo(out)) throw IOException("could not move the file")
+                if (!commitFile(audioTmp, out)) throw IOException("could not move the file")
             } else if (quality == com.music.spotui.data.preferences.DownloadQuality.SMALL) {
                 // "Smallest": the checked FLAC becomes AAC, encoded on the phone.
                 out = File(OfflineStore.audioDir, "${r.trackId}.m4a")
@@ -290,29 +318,35 @@ object OfflineDownloader {
                 try {
                     // Encoding is long: a few at a time, the other downloads go on meanwhile.
                     encodeSlots.withPermit { runInterruptible(Dispatchers.Default) { AacTranscoder.transcode(audioTmp, aacTmp) } }
-                    if (aacTmp.length() < 10_000 || !aacTmp.renameTo(out)) throw IOException("could not encode the small file")
+                    if (aacTmp.length() < 10_000 || !commitFile(aacTmp, out)) throw IOException("could not encode the small file")
                 } finally {
                     aacTmp.delete()
                 }
             } else {
                 out = File(OfflineStore.audioDir, "${r.trackId}.flac")
-                if (!audioTmp.renameTo(out)) throw IOException("could not move the file")
+                if (!commitFile(audioTmp, out)) throw IOException("could not move the file")
             }
             // The audio is complete on disk from here on: "stop all" must not interrupt this last
             // part, or the file would stay out of the index and be swept as a stray at startup.
             return withContext(NonCancellable) {
-                // Kept encrypted: the file only plays in Myspoti, on this phone.
-                runInterruptible(Dispatchers.IO) { OfflineCrypto.encryptInPlace(Graph.app, out) }
-                val cover = runCatching {
-                    val c = File(OfflineStore.coverDir, "${r.trackId}.jpg")
-                    httpGet(app.myspoti.host.android.Covers.large(meta.coverUrl), c); c.name
-                }.getOrDefault("")
-                OfflineTrack(
-                    trackId = r.trackId, title = meta.title, artist = meta.artist, album = meta.album,
-                    albumId = meta.albumId, durationMs = meta.durationMs, coverUrl = meta.coverUrl,
-                    file = out.name, cover = cover, source = file.provider, verified = file.isrcMatched,
-                    bytes = out.length(), addedAt = System.currentTimeMillis(), providerId = file.extensionId,
-                )
+                try {
+                    // Kept encrypted: the file only plays in Myspoti, on this phone.
+                    runInterruptible(Dispatchers.IO) { OfflineCrypto.encryptInPlace(Graph.app, out) }
+                    val cover = runCatching {
+                        val c = File(OfflineStore.coverDir, "${r.trackId}.jpg")
+                        httpGet(app.myspoti.host.android.Covers.large(meta.coverUrl), c); c.name
+                    }.getOrDefault("")
+                    OfflineTrack(
+                        trackId = r.trackId, title = meta.title, artist = meta.artist, album = meta.album,
+                        albumId = meta.albumId, durationMs = meta.durationMs, coverUrl = meta.coverUrl,
+                        file = out.name, cover = cover, source = file.provider, verified = file.isrcMatched,
+                        bytes = out.length(), addedAt = System.currentTimeMillis(), providerId = file.extensionId,
+                    )
+                } catch (e: Throwable) {
+                    // If encryption fails, clean up the unencrypted file
+                    out.delete()
+                    throw e
+                }
             }
         } finally {
             audioTmp.delete()
@@ -348,6 +382,8 @@ object OfflineDownloader {
     private suspend fun resolveAndFetch(r: Request, meta: Meta, out: File, quality: com.music.spotui.data.preferences.DownloadQuality): Fetched {
         val track = com.music.spotui.extensions.Extensions.trackInfo(r.trackId, meta.title, meta.artist, meta.album, meta.durationMs, meta.coverUrl)
             .copy(isrc = meta.isrc)
+        // Show "searching..." state while looking for the source
+        setStatus(r.trackId, OfflineStatus.Downloading(-1f))
         val (extensionId, extension, files) = com.music.spotui.extensions.Extensions.downloadFiles(track, queryQuality(quality))
             ?: throw Unavailable("no download source has this song")
         for (file in files) {
@@ -368,6 +404,7 @@ object OfflineDownloader {
                 false
             }
             if (!ok) continue
+            setStatus(r.trackId, OfflineStatus.Verifying)
             val refused = runCatching {
                 if (file.lossless) checkFlacHeader(out, meta, file.bitDepth) else checkAudio(out, meta)
             }.exceptionOrNull()
@@ -475,8 +512,8 @@ object OfflineDownloader {
 
     /**
      * The byte range loop, shared with [PodcastDownloader]: a publisher's MP3 is fetched the
-     * same way (follows the 302s to podtrac/radiofrance/simplecast, restarts from zero when a
-     * server ignores Range, retries each chunk three times).
+     * same way (follows the 302s to podtrac/radiofrance/simplecast, retries each chunk with
+     * exponential backoff: 500ms, 1s, 2s).
      */
     internal fun rangedDownload(url: String, out: File, knownTotal: Long, headers: Map<String, String> = emptyMap()): Boolean {
         val chunk = 4L * 1024 * 1024 // 4 MB: the stream gets its turn between two chunks
@@ -526,7 +563,10 @@ object OfflineDownloader {
                         break
                     } catch (e: IOException) {
                         if (attempt >= 3) throw e
-                        Log.w(TAG, "chunk at ${output.length()} failed (attempt $attempt): ${e.message}")
+                        // Exponential backoff: 500ms, 1s, 2s
+                        val backoffMs = 500L * (1 shl (attempt - 1))
+                        Log.w(TAG, "chunk at ${output.length()} failed (attempt $attempt, backoff ${backoffMs}ms): ${e.message}")
+                        Thread.sleep(backoffMs)
                     } finally {
                         conn.disconnect()
                     }
@@ -608,4 +648,40 @@ object OfflineDownloader {
     /** "US-UM7-17-03861" / "usum71703861" → "USUM71703861"; null when not an ISRC. */
     fun normalizeIsrc(raw: String): String? =
         raw.uppercase().filter { it.isLetterOrDigit() }.takeIf { Regex("[A-Z]{2}[A-Z0-9]{3}\\d{7}").matches(it) }
+
+    internal fun transfersHeld(): Boolean =
+        OfflineMode.enabled || com.music.spotui.data.DataSaver.active
+
+    internal fun dropTemps(trackId: String) {
+        runCatching {
+            // Clean all temporary files for this track, regardless of state
+            File(OfflineStore.tmpDir, "$trackId.part").delete()
+            File(OfflineStore.tmpDir, "$trackId.m4apart").delete()
+            File(OfflineStore.audioDir, "$trackId.part").delete()
+            File(OfflineStore.audioDir, "$trackId.m4apart").delete()
+            // Also clean incomplete audio files that might have been left behind
+            File(OfflineStore.audioDir, "$trackId.flac.tmp").delete()
+            File(OfflineStore.audioDir, "$trackId.m4a.tmp").delete()
+            File(OfflineStore.audioDir, "$trackId.mp3.tmp").delete()
+        }
+    }
+
+    internal fun classifyFailure(t: Throwable): OfflineStatus {
+        val msg = t.message?.lowercase().orEmpty()
+        val cause = t.cause?.message?.lowercase().orEmpty()
+        return when {
+            t is java.io.InterruptedIOException -> OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_network)
+            t is java.net.SocketTimeoutException || t is java.net.UnknownHostException || t is java.net.ConnectException ->
+                OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_network)
+            msg.contains("space") || msg.contains("enospc") || msg.contains("storage") || cause.contains("enospc") ->
+                OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_storage)
+            msg.contains("verify") || msg.contains("preview") || msg.contains("corrupt") || msg.contains("header") || msg.contains("format") ->
+                OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_corrupt)
+            msg.contains("404") || msg.contains("410") || msg.contains("not found") ->
+                OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_network)
+            msg.contains("403") || msg.contains("forbidden") || msg.contains("access denied") ->
+                OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_network)
+            else -> OfflineStatus.Failed(app.myspoti.engine.R.string.podcast_download_failed)
+        }
+    }
 }

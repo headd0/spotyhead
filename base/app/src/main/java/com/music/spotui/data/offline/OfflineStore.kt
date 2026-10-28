@@ -70,13 +70,20 @@ data class OfflineTrack(
 /** Where a download stands, for the badges and buttons. */
 sealed interface OfflineStatus {
     data object Queued : OfflineStatus
-    /** [progress] 0..1, or -1 while the source is looked up / checked. */
+    /** Held: Offline Mode, or the data saver on mobile data. Still in the queue. */
+    data object Waiting : OfflineStatus
+    /** [progress] 0..1, or -1 while the source is looked up. */
     data class Downloading(val progress: Float) : OfflineStatus
+    /** The file is on disk and is being checked (length, format) before it is kept. */
+    data object Verifying : OfflineStatus
     data object Done : OfflineStatus
     /** No recording that matches the Spotify track was found. */
     data object Unavailable : OfflineStatus
-    /** Network or storage error: can be tried again. */
-    data object Failed : OfflineStatus
+    /** Network, storage or a refused file: can be tried again. [messageRes] is the user text. */
+    data class Failed(val messageRes: Int) : OfflineStatus
+
+    /** Queued, transferring, checking, or waiting for the network / Offline Mode. */
+    fun inProgress(): Boolean = this is Queued || this is Waiting || this is Downloading || this is Verifying
 }
 
 /**
@@ -140,7 +147,7 @@ object OfflineStore {
     internal val podcastPendingFile: File get() = File(root, "podcasts-pending.json")
     val tmpDir: File get() = File(root, "tmp").apply { mkdirs() }
 
-    fun isDownloaded(trackId: String) = trackId.isNotBlank() && tracks.containsKey(trackId)
+    fun isDownloaded(trackId: String) = trackId.isNotBlank() && tracks.containsKey(trackId) && hasPlayableFile(trackId)
 
     /** What the UI shows for a track: downloaded, in the queue, failed… or nothing. */
     fun statusOf(trackId: String): OfflineStatus? =
@@ -241,6 +248,34 @@ object OfflineStore {
         val tmp = File(root, "index.json.tmp")
         tmp.writeText(a.toString())
         if (indexFile.exists() && readIndex(indexFile)?.complete == true) indexFile.copyTo(backupFile, overwrite = true)
-        tmp.renameTo(indexFile)
+        if (!commitFile(tmp, indexFile)) {
+            android.util.Log.w("Offline", "could not write the download index")
+            tmp.delete()
+        }
+    }
+
+    /** Bytes free in the downloads folder, or -1 when the platform does not say. */
+    fun usableBytes(): Long = runCatching { audioDir.usableSpace }.getOrDefault(-1L)
+
+    /** True when [trackId] has a file on disk that the player can open. */
+    fun hasPlayableFile(trackId: String): Boolean {
+        val t = tracks[trackId] ?: return false
+        val f = File(audioDir, t.file)
+        return f.isFile && f.length() > OfflineCrypto.HEADER
     }
 }
+
+/**
+ * Replaces [dest] with [from] without leaving a half-written file. On Android [File.renameTo]
+ * fails when the destination exists, so the old file is removed first.
+ */
+internal fun commitFile(from: File, dest: File): Boolean {
+    if (!from.exists()) return false
+    if (dest.exists() && !dest.delete()) return false
+    return from.renameTo(dest)
+}
+
+/** False when [usable] (bytes free) cannot hold [needed] plus a small reserve. Unknown usable is allowed. */
+internal fun enoughSpace(usable: Long, needed: Long, reserve: Long = 8L * 1024 * 1024): Boolean =
+    usable < 0L || needed <= 0L || usable >= needed + reserve
+

@@ -22,7 +22,11 @@ class LocalPlayPlanTest {
 
     @Test fun dataSaverPlaysTheDownloadedSongsOnly() = assertEquals(listOf("b", "a"), plan(listOf("b", "x", "a"), "a", saver = true))
 
-    @Test fun offlinePickedSongNotDownloadedIsLeftToTheCaller() = assertNull(plan(listOf("a", "x"), "x", offline = true))
+    @Test fun offlinePickedSongNotDownloadedReturnsEmptyList() = assertEquals(emptyList<String>(), plan(listOf("a", "x"), "x", offline = true))
+
+    @Test fun offlineNothingDownloadedReturnsEmptyList() = assertEquals(emptyList<String>(), plan(listOf("x", "y"), "x", offline = true))
+
+    @Test fun dataSaverPickedSongNotDownloadedReturnsEmptyList() = assertEquals(emptyList<String>(), plan(listOf("a", "x"), "x", saver = true))
 
     @Test fun blankIdsAreIgnored() = assertEquals(listOf("a"), plan(listOf("a", ""), "a"))
 }

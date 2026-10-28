@@ -152,6 +152,19 @@ object PodcastDownloader {
         synchronized(pending) { if (pending.remove(trackId) != null) savePending() }
         running.remove(trackId)?.cancel()
         scope.launch(Dispatchers.Main) { OfflineStore.status.remove(trackId); requests.remove(trackId) }
+        dropTemps(trackId)
+    }
+
+    fun holdTransfers() {
+        running.values.forEach { it.cancel() }
+    }
+
+    internal fun dropTemps(trackId: String) {
+        val safe = safeName(trackId)
+        runCatching {
+            File(OfflineStore.tmpDir, "$safe.part").delete()
+            File(OfflineStore.audioDir, "$safe.part").delete()
+        }
     }
 
     /** Deletes a downloaded episode (or stops its download). */
@@ -185,9 +198,10 @@ object PodcastDownloader {
     private suspend fun work(r: Request) {
         // Cancelled while it waited in the queue.
         if (synchronized(pending) { !pending.containsKey(r.trackId) }) return
-        // Data saver on mobile data: like music downloads, wait for Wi-Fi rather than spend data.
-        while (com.music.spotui.data.DataSaver.active) {
-            delay(5_000)
+        // Offline Mode or data saver on mobile data: wait, shown as Waiting
+        while (OfflineMode.enabled || com.music.spotui.data.DataSaver.active) {
+            setStatus(r.trackId, OfflineStatus.Waiting)
+            delay(1_000)
             if (synchronized(pending) { !pending.containsKey(r.trackId) }) return
         }
         val job = scope.launch {
@@ -198,6 +212,11 @@ object PodcastDownloader {
                 withContext(Dispatchers.Main) { requests.remove(r.trackId) }
                 null
             } catch (e: CancellationException) {
+                dropTemps(r.trackId)
+                if (synchronized(pending) { pending.containsKey(r.trackId) }) {
+                    setStatus(r.trackId, OfflineStatus.Waiting)
+                    queue.trySend(r)
+                }
                 throw e
             } catch (e: Unavailable) {
                 Log.i(TAG, "${r.title}: ${e.message}")
@@ -206,7 +225,7 @@ object PodcastDownloader {
             } catch (t: Throwable) {
                 Log.w(TAG, "${r.title} failed", t)
                 toast(app.myspoti.engine.R.string.podcast_download_failed)
-                OfflineStatus.Failed
+                OfflineStatus.Failed(app.myspoti.engine.R.string.podcast_download_failed)
             }
             synchronized(pending) { pending.remove(r.trackId); savePending() }
             if (outcome != null) setStatus(r.trackId, outcome)

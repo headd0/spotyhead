@@ -102,7 +102,7 @@ object OfflineCrypto {
         val tmp = File(file.parentFile, file.name + ".enc")
         try {
             encrypt(context, file, tmp)
-            if (!tmp.renameTo(file)) throw IOException("could not replace ${file.name}")
+            if (!commitFile(tmp, file)) throw IOException("could not replace ${file.name}")
         } finally {
             tmp.delete()
         }

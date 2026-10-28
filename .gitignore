@@ -1,22 +1,69 @@
-# build outputs
+# Build outputs (NEVER push these)
 build/
 .gradle/
 .kotlin/
 *.apk
+*.aab
+*.aar
 *.zip
-*.log
 dist/
+
+# Local development
 local.properties
-# device captures (logs can contain session data)
+gradle.properties
+settings.local.properties
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.iws
+*.ipr
+
+# OS files
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+Desktop.ini
+*.bak
+*.tmp
+
+# Device captures & logs
 tools/captures/
 base/tools/captures/
+*.log
+
+# Python
 __pycache__/
-.idea/
+*.py[cod]
+*.egg-info/
+.Python
+
+# Testing
+test-results/
+androidTest-results/
+coverage/
+
+# Temporary files
 PROMPT-*.md
-# internal working notes (account, device, local paths): kept on the machine, never published
 HANDOFF.md
 ANNEXE-ETAT.txt
+REDDIT-*.md
 docs/RESTE-A-FAIRE.md
 tools/handoff_state.sh
-REDDIT-*.md
 tools/qa-results/
+
+# Keystore (SECURITY - never commit!)
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore/
+
+# Gradle cache
+.gradle-user-home/
+gradle-home/
+
+# Build cache
+.gradle/

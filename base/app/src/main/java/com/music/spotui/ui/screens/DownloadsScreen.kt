@@ -200,11 +200,11 @@ fun DownloadsScreen(navController: NavController) {
             // Songs still on their way (or that could not be downloaded).
             items(waiting, key = { "w:" + it.trackId }) { r ->
                 val status = OfflineStore.status[r.trackId]
-                val problem = status == OfflineStatus.Failed || status == OfflineStatus.Unavailable
+                val problem = status is OfflineStatus.Failed || status == OfflineStatus.Unavailable
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = animatedRow().fillMaxWidth()
-                        .pressable(0.97f) { if (status == OfflineStatus.Failed) OfflineDownloader.retry(r.trackId) }
+                        .pressable(0.97f) { if (status is OfflineStatus.Failed) OfflineDownloader.retry(r.trackId) }
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     GlideImage(
@@ -217,7 +217,10 @@ fun DownloadsScreen(navController: NavController) {
                         Text(r.title, color = AppText.copy(alpha = 0.6f), fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         val line = when (status) {
                             OfflineStatus.Unavailable -> stringResource(R.string.download_unavailable)
-                            OfflineStatus.Failed -> stringResource(R.string.download_badge_error_content_description) + " · " + stringResource(R.string.download_retry)
+                            is OfflineStatus.Failed -> stringResource(status.messageRes) + " · " + stringResource(R.string.download_retry)
+                            OfflineStatus.Verifying -> stringResource(R.string.download_verifying)
+                            OfflineStatus.Waiting -> stringResource(R.string.download_waiting)
+                            OfflineStatus.Queued -> stringResource(R.string.download_queued)
                             else -> stringResource(R.string.download_notification_downloading)
                         }
                         Text(line, color = if (problem) AppDestructive else AppMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)

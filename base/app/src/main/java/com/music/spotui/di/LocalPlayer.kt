@@ -163,6 +163,7 @@ object LocalPlayer {
      */
     private fun prefetchNext(p: ExoPlayer) {
         ahead?.cancel()
+        if (com.music.spotui.data.offline.OfflineMode.enabled || com.music.spotui.data.DataSaver.active) return
         val i = p.nextMediaItemIndex
         if (i == C.INDEX_UNSET) return
         val uri = p.getMediaItemAt(i).localConfiguration?.uri ?: return
@@ -483,6 +484,7 @@ object LocalPlayer {
      */
     private fun continueIfLast(p: ExoPlayer) {
         if (p.mediaItemCount == 0 || p.currentMediaItemIndex != p.mediaItemCount - 1) return
+        if (com.music.spotui.data.offline.OfflineMode.enabled || com.music.spotui.data.DataSaver.active) return
         val id = spotifyId(current())
         if (id == radioOf || !com.music.spotui.extensions.AudioRoute.continues(continues, id,
                 repeatAll = p.repeatMode == Player.REPEAT_MODE_ALL, autoplay = com.music.spotui.data.preferences.AutoplayPref.on)) return

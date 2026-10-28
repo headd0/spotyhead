@@ -752,10 +752,27 @@ object SongPlayer {
         song: String, context: Context? = null, contextUri: String? = null, order: List<String>? = null, positionMs: Long? = null,
         songs: List<SongsModel>? = null, askExtensions: Boolean = true, alone: Boolean = false,
     ) {
-        // Data saver on mobile data: Spotify can't stream, only downloads and Local Files play.
-        if (com.music.spotui.data.DataSaver.active) {
+        // Data saver on mobile data, or Offline Mode: Spotify can't stream, only downloads and Local Files play.
+        if (com.music.spotui.data.offline.OfflineMode.enabled || com.music.spotui.data.DataSaver.active) {
+            val trackId = if (song.startsWith("episode:")) null else spotifyTrackIdForPlayback(song)
+            if (trackId != null && com.music.spotui.data.offline.OfflineStore.hasPlayableFile(trackId)) {
+                playLocalDownloaded(trackId, songs, contextUri, order, positionMs)
+                return
+            }
+            if (song.startsWith("episode:")) {
+                val epId = song.removePrefix("episode:")
+                val key = "episode:$epId"
+                if (com.music.spotui.data.offline.OfflineStore.hasPlayableFile(key)) {
+                    playLocalDownloaded(key, songs, contextUri, order, positionMs)
+                    return
+                }
+            }
             main.post {
-                android.widget.Toast.makeText(Graph.app, app.myspoti.engine.R.string.data_saver_blocked, android.widget.Toast.LENGTH_SHORT).show()
+                val res = if (com.music.spotui.data.offline.OfflineMode.enabled)
+                    app.myspoti.engine.R.string.offline_track_unavailable
+                else
+                    app.myspoti.engine.R.string.data_saver_blocked
+                android.widget.Toast.makeText(Graph.app, res, android.widget.Toast.LENGTH_SHORT).show()
             }
             return
         }
@@ -849,7 +866,7 @@ object SongPlayer {
      */
     fun playUnavailableOnSpotify(t: com.music.spotui.data.local.LocalTrack, positionMs: Long): Boolean {
         val id = streamedTrackId(t)
-        if (id.isBlank() || com.music.spotui.data.DataSaver.active) return false
+        if (id.isBlank() || com.music.spotui.data.offline.OfflineMode.enabled || com.music.spotui.data.DataSaver.active) return false
         app.myspoti.host.android.Logbook.log("local: ${t.title} not available from extensions, Spotify plays it")
         spotifyPlayed.add(id)
         spotifyFallbackId = id
@@ -866,7 +883,7 @@ object SongPlayer {
      * song's last second; the song it moves on to is asked to the extensions again (backToExtensions).
      */
     fun continueOnSpotify(t: com.music.spotui.data.local.LocalTrack, trackId: String) {
-        if (trackId.isBlank() || com.music.spotui.data.DataSaver.active) return
+        if (trackId.isBlank() || com.music.spotui.data.offline.OfflineMode.enabled || com.music.spotui.data.DataSaver.active) return
         app.myspoti.host.android.Logbook.log("local: queue ended, Spotify continues")
         spotifyFallbackId = trackId
         val end = (t.durationMs.takeIf { it > 0 } ?: LocalPlayer.duration()) - END_LEAD_MS
@@ -2058,6 +2075,56 @@ object SongPlayer {
         val list = songs.mapNotNull { downloads[it.spotifyTrackId] }.map(store::toLocalTrack)
         LocalPlayer.play(list, 0, startMs = getCurrentPosition(), context = null)
         return true
+    }
+
+    fun onOfflineModeOn() {
+        main.post {
+            val store = com.music.spotui.data.offline.OfflineStore
+            if (LocalPlayer.active.value) {
+                val current = LocalPlayer.current()
+                val trackId = current?.let { LocalPlayer.spotifyIdOf(it) }.orEmpty()
+                if (trackId.isNotBlank() && store.hasPlayableFile(trackId)) {
+                    // Already playing a downloaded file, continue.
+                    return@post
+                }
+                // Was streaming from an extension or missing file: pause
+                LocalPlayer.pause()
+                android.widget.Toast.makeText(Graph.app, app.myspoti.engine.R.string.offline_track_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                val wasPlaying = playing
+                val currentUri = _nowPlaying.value.uri
+                val trackId = if (currentUri.startsWith("spotify:track:")) currentUri.removePrefix("spotify:track:") else ""
+                val currentPos = getCurrentPosition()
+                pause()
+                if (trackId.isNotBlank() && store.hasPlayableFile(trackId)) {
+                    playLocalDownloaded(trackId, null, _nowPlaying.value.contextUri, null, currentPos)
+                    if (!wasPlaying) LocalPlayer.pause()
+                } else if (wasPlaying) {
+                    android.widget.Toast.makeText(Graph.app, app.myspoti.engine.R.string.offline_track_unavailable, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun playLocalDownloaded(
+        trackId: String, songs: List<SongsModel>?, contextUri: String?, order: List<String>?, positionMs: Long?
+    ) {
+        val store = com.music.spotui.data.offline.OfflineStore
+        val target = store.tracks[trackId] ?: return
+        val downloadedSongs = songs?.filter { store.hasPlayableFile(it.spotifyTrackId) }
+            ?: listOf(store.toSong(target))
+        val list = downloadedSongs.mapNotNull { store.tracks[it.spotifyTrackId]?.let(store::toLocalTrack) }
+        val effectiveList = if (list.isNotEmpty()) list else listOf(store.toLocalTrack(target))
+        val index = effectiveList.indexOfFirst { it.id == store.localIdOf(trackId) }.coerceAtLeast(0)
+        LocalPlayer.play(
+            list = effectiveList,
+            index = index,
+            shuffle = isShuffleOn(),
+            context = contextUri?.let(::knownContextName),
+            contextUri = contextUri.orEmpty(),
+            startMs = positionMs ?: 0L,
+            continues = false,
+        )
     }
 
     /** The Spotify uri of what the local player plays: a song an extension streams or a download; null for a file of the device. */

@@ -37,4 +37,16 @@ class OfflineDownloaderTest {
             assertTrue(OfflineStore.localIdOf(id) < 0)
         }
     }
+
+    @Test fun flacDurationSecParsesValidHeader() {
+        // Valid fLaC header with 44100 Hz, 2 channels, 16-bit, 44100 samples (1 second)
+        val validHeader = "fLaC".toByteArray() + ByteArray(4) + 
+            byteArrayOf(0xAC.toByte(), 0x22, 0x00, 0x00, 0x00, 0x02, 0xAC.toByte(), 0x22)
+        assertEquals(1, OfflineDownloader.flacDurationSec(validHeader))
+    }
+
+    @Test fun flacDurationSecRejectsInvalidMagic() {
+        val invalid = "xxxx".toByteArray() + ByteArray(38)
+        assertNull(OfflineDownloader.flacDurationSec(invalid))
+    }
 }

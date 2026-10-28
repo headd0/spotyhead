@@ -38,7 +38,7 @@ fun DownloadBadge(status: OfflineStatus?, size: Dp = 16.dp, modifier: Modifier =
             Icon(Icons.Default.ArrowDownward, stringResource(R.string.download_badge_downloaded_content_description),
                 tint = Color.Black, modifier = Modifier.size(size * 0.7f))
         }
-        OfflineStatus.Queued -> Icon(Icons.Outlined.ArrowCircleDown,
+        OfflineStatus.Queued, OfflineStatus.Waiting -> Icon(Icons.Outlined.ArrowCircleDown,
             stringResource(R.string.download_badge_downloading_content_description),
             tint = AppText.copy(alpha = 0.5f), modifier = modifier.size(size))
         is OfflineStatus.Downloading -> Box(contentAlignment = Alignment.Center, modifier = modifier.size(size)) {
@@ -46,7 +46,10 @@ fun DownloadBadge(status: OfflineStatus?, size: Dp = 16.dp, modifier: Modifier =
             else CircularProgressIndicator(progress = { status.progress }, color = Green, trackColor = AppText.copy(alpha = 0.2f),
                 strokeWidth = 2.dp, modifier = Modifier.size(size))
         }
-        OfflineStatus.Failed, OfflineStatus.Unavailable -> Icon(Icons.Outlined.ErrorOutline,
+        OfflineStatus.Verifying -> Box(contentAlignment = Alignment.Center, modifier = modifier.size(size)) {
+            CircularProgressIndicator(color = Green, strokeWidth = 2.dp, modifier = Modifier.size(size))
+        }
+        is OfflineStatus.Failed, OfflineStatus.Unavailable -> Icon(Icons.Outlined.ErrorOutline,
             stringResource(R.string.download_badge_error_content_description),
             tint = Color(0xFFE22134), modifier = modifier.size(size))
     }
