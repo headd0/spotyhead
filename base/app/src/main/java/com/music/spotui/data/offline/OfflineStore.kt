@@ -114,6 +114,8 @@ object OfflineStore {
         root = dir
         tracks.clear()
         audioDir.mkdirs(); coverDir.mkdirs()
+        // Before anything is swept: a copy left by an interrupted encryption is a song.
+        recoverPlainCopies()
         // The index lists only finished files; anything else in the folders is a leftover.
         // An index that cannot be read fully is never trusted to delete anything: the last
         // good copy is used instead, and if that fails too the files are all kept.
@@ -140,6 +142,27 @@ object OfflineStore {
     val audioDir: File get() = File(root, "audio")
     val coverDir: File get() = File(root, "covers")
     private val indexFile: File get() = File(root, "index.json")
+
+    /**
+     * A crash while a file was encrypted in place leaves `<name>.plain` next to it (see
+     * [OfflineCrypto.encryptInPlace]): the audio comes back before the index is read, or the
+     * sweep for strays would delete it.
+     */
+    private fun recoverPlainCopies() {
+        audioDir.listFiles()?.filter { it.name.endsWith(OfflineCrypto.PLAIN_SUFFIX) }?.forEach { plain ->
+            val dest = File(audioDir, plain.name.removeSuffix(OfflineCrypto.PLAIN_SUFFIX))
+            when {
+                // The encrypted file that won is the one to keep.
+                dest.isFile && OfflineCrypto.isEncrypted(dest) -> plain.delete()
+                // Nothing, or a smaller partial file, is there: the plain copy is the best one.
+                !dest.exists() || dest.length() < plain.length() -> {
+                    dest.delete()
+                    if (!plain.renameTo(dest)) android.util.Log.w("Offline", "could not restore ${plain.name}")
+                }
+                else -> plain.delete()
+            }
+        }
+    }
     /** The index before the last write, the fallback when [indexFile] is damaged. */
     private val backupFile: File get() = File(root, "index.json.bak")
     internal val pendingFile: File get() = File(root, "pending.json")

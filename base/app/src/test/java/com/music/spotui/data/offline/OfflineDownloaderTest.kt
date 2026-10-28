@@ -39,10 +39,13 @@ class OfflineDownloaderTest {
     }
 
     @Test fun flacDurationSecParsesValidHeader() {
-        // Valid fLaC header with 44100 Hz, 2 channels, 16-bit, 44100 samples (1 second)
-        val validHeader = "fLaC".toByteArray() + ByteArray(4) + 
-            byteArrayOf(0xAC.toByte(), 0x22, 0x00, 0x00, 0x00, 0x02, 0xAC.toByte(), 0x22)
-        assertEquals(1, OfflineDownloader.flacDurationSec(validHeader))
+        // Valid fLaC header: 44100 Hz, 2 channels, 16-bit, 44100 samples (1 second).
+        // Bytes 18..25 pack rate (20 bits) | channels (3) | bit depth (5) | samples (36).
+        val head = ByteArray(42)
+        "fLaC".toByteArray().copyInto(head)
+        val packed = (44_100L shl 44) or (2L shl 41) or (16L shl 36) or 44_100L
+        for (i in 0 until 8) head[18 + i] = (packed ushr (56 - 8 * i)).toByte()
+        assertEquals(1, OfflineDownloader.flacDurationSec(head))
     }
 
     @Test fun flacDurationSecRejectsInvalidMagic() {

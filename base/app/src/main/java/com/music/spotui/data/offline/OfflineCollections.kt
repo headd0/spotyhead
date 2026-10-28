@@ -72,6 +72,8 @@ object OfflineCollections {
     /** The phone is on Wi-Fi (or another unmetered network) again. */
     fun onUnmetered(context: Context) {
         if (!wifiPending) return
+        // Offline Mode: the refresh stays pending, and runs when it is turned off.
+        if (OfflineMode.enabled) return
         wifiPending = false
         refreshAll(context, force = true)
     }
@@ -103,10 +105,16 @@ object OfflineCollections {
         // An episode in a list is not a track: it stays out of the collection, and the
         // list download never enqueues it (its own menu row is the way to download an episode).
         val ids = page.tracks.map { it.spotifyTrackId }.filter { it.isNotBlank() && !isEpisodeKey(it) }.toSet()
-        collections[page.uri] = OfflineCollection(page.uri, page.type, page.name, ids, System.currentTimeMillis(), quality?.name.orEmpty())
+        // A page still loading (a long playlist shows its first songs first) is synced at
+        // once rather than in 6 hours: only the songs it listed would be downloaded otherwise.
+        val startedAt = System.currentTimeMillis()
+        collections[page.uri] = OfflineCollection(
+            page.uri, page.type, page.name, ids, if (page.complete) startedAt else 0L, quality?.name.orEmpty(),
+        )
         save()
         keepPage(page)
         OfflineDownloader.enqueue(page.tracks, quality)
+        if (!page.complete) refreshOne(Graph.app, page.uri, ifUnchangedSince = startedAt)
     }
 
     /** Stop keeping a list: its songs go, unless another reason keeps them. */
@@ -138,7 +146,16 @@ object OfflineCollections {
         collections[page.uri] = c.copy(name = page.name, trackIds = ids, syncedAt = System.currentTimeMillis())
         save()
         keepPage(page)
-        val missing = songs.filter { !OfflineStore.isDownloaded(it.spotifyTrackId) && OfflineStore.status[it.spotifyTrackId] == null }
+        // A song that failed (a network reset, a busy source) is tried again on the next
+        // sync, like a new one; only "no source has it" and downloads already in flight are
+        // left alone.
+        val missing = songs.filter { s ->
+            !OfflineStore.isDownloaded(s.spotifyTrackId) &&
+                when (OfflineStore.status[s.spotifyTrackId]) {
+                    null, is OfflineStatus.Failed -> true
+                    else -> false
+                }
+        }
         if (missing.isNotEmpty()) OfflineDownloader.enqueue(missing, com.music.spotui.data.preferences.DownloadQuality.saved(c.quality), auto = true)
         gone.filterNot { isKept(it) || isEpisodeKey(it) }.forEach { OfflineDownloader.remove(it) }
         if (missing.isNotEmpty() || gone.isNotEmpty()) Log.i(TAG, "${page.name}: +${missing.size} -${gone.size}")
@@ -165,6 +182,8 @@ object OfflineCollections {
     fun refreshAll(context: Context, force: Boolean = false) {
         scope.launch {
             delay(15_000)
+            // Offline Mode: no list is read (the user asked for no network).
+            if (OfflineMode.enabled) return@launch
             if (!OfflineStore.isOnline(context)) return@launch
             // On mobile data the lists are not even read: the sync waits for Wi-Fi.
             if (com.music.spotui.data.DataSaver.metered) { waitForWifi(); return@launch }
@@ -186,11 +205,17 @@ object OfflineCollections {
     /**
      * One downloaded list changed from the app (a song added to it): read again and synced at
      * once, so the new song is on the phone without opening the list (Wi-Fi rule as above).
+     *
+     * [ifUnchangedSince]: with a timestamp, the read is skipped when the list was synced at or
+     * after it in the meantime (the page the list was downloaded from finished loading and its
+     * own sync already brought every song).
      */
-    fun refreshOne(context: Context, uri: String) {
+    fun refreshOne(context: Context, uri: String, ifUnchangedSince: Long = 0L) {
         val c = collections[uri] ?: return
         scope.launch {
             delay(1_500) // Spotify's own copy of the list catches up first.
+            if (OfflineMode.enabled) return@launch
+            if (ifUnchangedSince > 0L && (collections[uri]?.syncedAt ?: 0L) >= ifUnchangedSince) return@launch
             if (!OfflineStore.isOnline(context)) return@launch
             if (com.music.spotui.data.DataSaver.metered) { waitForWifi(); return@launch }
             val page = withTimeoutOrNull(60_000) { loadComplete(c) } ?: return@launch

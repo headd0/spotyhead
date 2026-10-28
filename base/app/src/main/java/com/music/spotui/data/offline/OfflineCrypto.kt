@@ -100,13 +100,30 @@ object OfflineCrypto {
     fun encryptInPlace(context: Context, file: File) {
         if (isEncrypted(file)) return
         val tmp = File(file.parentFile, file.name + ".enc")
+        // The one playable copy is set aside until the encrypted file is safely in place:
+        // `commitFile` deletes the destination first, so a failed rename used to leave the
+        // song with no file at all. `OfflineStore.load` recovers a copy left by a crash.
+        val plain = File(file.parentFile, file.name + PLAIN_SUFFIX)
         try {
             encrypt(context, file, tmp)
-            if (!commitFile(tmp, file)) throw IOException("could not replace ${file.name}")
+            // A copy from an earlier, interrupted attempt is older than `file` itself.
+            plain.delete()
+            if (!file.renameTo(plain)) throw IOException("could not set ${file.name} aside")
+            if (!tmp.renameTo(file)) {
+                plain.renameTo(file)
+                throw IOException("could not replace ${file.name}")
+            }
+            plain.delete()
         } finally {
             tmp.delete()
+            // A crash between the two renames leaves `<name>.plain` and no `<name>`: put it
+            // back, so the song stays readable (and is encrypted on the next start).
+            if (plain.exists() && !file.exists()) plain.renameTo(file)
         }
     }
+
+    /** Suffix of the plain copy kept while a file is encrypted in place. */
+    internal const val PLAIN_SUFFIX = ".plain"
 
     /** AES-CTR positioned at byte [offset] of the stream (the caller skips offset % 16). */
     internal fun cipher(key: SecretKey, iv: ByteArray, offset: Long): Cipher {

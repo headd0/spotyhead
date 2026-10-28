@@ -38,4 +38,15 @@ class StreamErrorsTest {
         e.failed("a", false)
         assertEquals(Step.STOP, e.failed("a", false))
     }
+
+    @Test fun `a file is never retried, only skipped within the limit`() {
+        val e = StreamErrors()
+        assertEquals(Step.SKIP, e.fileFailed(hasNext = true))
+        assertEquals(Step.SKIP, e.fileFailed(hasNext = true))
+        assertEquals(Step.STOP, e.fileFailed(hasNext = true))
+    }
+
+    @Test fun `the last file of the queue stops`() {
+        assertEquals(Step.STOP, StreamErrors().fileFailed(hasNext = false))
+    }
 }

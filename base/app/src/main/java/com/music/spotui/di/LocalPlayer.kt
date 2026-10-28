@@ -108,8 +108,27 @@ object LocalPlayer {
                 override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                     log("error ${error.errorCodeName}: ${generic(error.cause?.toString() ?: error.message.orEmpty())}")
                     val item = p.currentMediaItem?.localConfiguration?.uri ?: return
-                    if (item.scheme != com.music.spotui.extensions.ExtensionAudio.SCHEME) return
                     val t = current() ?: return
+                    // A downloaded file (or a Local File) that cannot be opened — a lost
+                    // encryption key, a damaged file — is never retried into nothing: the user
+                    // is told, and the queue moves on. It used to fail silently, stuck.
+                    if (item.scheme == "file") {
+                        when (errors.fileFailed(p.hasNextMediaItem())) {
+                            StreamErrors.Step.SKIP -> {
+                                log("skipped ${t.title}: its file cannot be played")
+                                android.widget.Toast.makeText(Graph.app, Graph.app.getString(app.myspoti.engine.R.string.song_unavailable_skipped, t.title), android.widget.Toast.LENGTH_SHORT).show()
+                                p.seekToNextMediaItem()
+                                p.prepare()
+                                p.play()
+                            }
+                            else -> {
+                                log("stopped on ${t.title}: its file cannot be played")
+                                android.widget.Toast.makeText(Graph.app, Graph.app.getString(app.myspoti.engine.R.string.song_unavailable, t.title), android.widget.Toast.LENGTH_LONG).show()
+                            }
+                        }
+                        return
+                    }
+                    if (item.scheme != com.music.spotui.extensions.ExtensionAudio.SCHEME) return
                     val noAudio = com.music.spotui.extensions.AudioRoute.isNoAudio(error)
                     // No extension had it (the data source already asked twice): Spotify, no new ask.
                     val again = errors.alreadyRetried(item.toString())

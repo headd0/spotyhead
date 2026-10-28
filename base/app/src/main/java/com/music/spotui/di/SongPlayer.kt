@@ -1024,6 +1024,25 @@ object SongPlayer {
         if (routing) return // the song asked for starts by itself
         if (LocalPlayer.active.value) { Haptics.click(); LocalPlayer.resume(); return }
         if (resumeRestoredLocal()) { Haptics.click(); return }
+        // Offline Mode / data saver: resuming the suspended Web Player would stream, or do
+        // nothing at all (the play button dead). Only a downloaded song starts, where it was.
+        if (com.music.spotui.data.offline.OfflineMode.localOnly) {
+            Haptics.click()
+            val store = com.music.spotui.data.offline.OfflineStore
+            val id = offlineTrackId(_nowPlaying.value.uri)
+            if (id.isNotBlank() && store.hasPlayableFile(id)) {
+                val q = _queue.value
+                val rest = (q.queued + q.nextUp).map { it.song }
+                playLocalDownloaded(id, rest, _nowPlaying.value.contextUri, null, getCurrentPosition())
+            } else {
+                val res = if (com.music.spotui.data.offline.OfflineMode.enabled)
+                    app.myspoti.engine.R.string.offline_track_unavailable
+                else
+                    app.myspoti.engine.R.string.data_saver_blocked
+                main.post { android.widget.Toast.makeText(Graph.app, res, android.widget.Toast.LENGTH_SHORT).show() }
+            }
+            return
+        }
         if (resumeThroughExtensions()) { Haptics.click(); return }
         // Smart shuffle was turned off while paused: the list's order comes back as it plays on.
         plainOrderDue?.let { if (restorePlainOrder(it)) return }
@@ -2093,11 +2112,15 @@ object SongPlayer {
             } else {
                 val wasPlaying = playing
                 val currentUri = _nowPlaying.value.uri
-                val trackId = if (currentUri.startsWith("spotify:track:")) currentUri.removePrefix("spotify:track:") else ""
+                val trackId = offlineTrackId(currentUri)
                 val currentPos = getCurrentPosition()
                 pause()
                 if (trackId.isNotBlank() && store.hasPlayableFile(trackId)) {
-                    playLocalDownloaded(trackId, null, _nowPlaying.value.contextUri, null, currentPos)
+                    // The downloaded songs that came after it go on with it: Offline Mode
+                    // does not stop the queue at the song that was playing.
+                    val q = _queue.value
+                    val rest = (q.queued + q.nextUp).map { it.song }
+                    playLocalDownloaded(trackId, rest, _nowPlaying.value.contextUri, null, currentPos)
                     if (!wasPlaying) LocalPlayer.pause()
                 } else if (wasPlaying) {
                     android.widget.Toast.makeText(Graph.app, app.myspoti.engine.R.string.offline_track_unavailable, android.widget.Toast.LENGTH_SHORT).show()
@@ -2111,13 +2134,15 @@ object SongPlayer {
     ) {
         val store = com.music.spotui.data.offline.OfflineStore
         val target = store.tracks[trackId] ?: return
-        val downloadedSongs = songs?.filter { store.hasPlayableFile(it.spotifyTrackId) }
-            ?: listOf(store.toSong(target))
-        val list = downloadedSongs.mapNotNull { store.tracks[it.spotifyTrackId]?.let(store::toLocalTrack) }
-        val effectiveList = if (list.isNotEmpty()) list else listOf(store.toLocalTrack(target))
-        val index = effectiveList.indexOfFirst { it.id == store.localIdOf(trackId) }.coerceAtLeast(0)
+        // The picked song always starts the queue, even when the list given does not hold it
+        // (a link, a queue that changed, an item from another context).
+        val downloaded = songs.orEmpty()
+            .filter { it.spotifyTrackId != trackId && store.hasPlayableFile(it.spotifyTrackId) }
+            .mapNotNull { store.tracks[it.spotifyTrackId]?.let(store::toLocalTrack) }
+        val list = listOf(store.toLocalTrack(target)) + downloaded
+        val index = list.indexOfFirst { it.id == store.localIdOf(trackId) }.coerceAtLeast(0)
         LocalPlayer.play(
-            list = effectiveList,
+            list = list,
             index = index,
             shuffle = isShuffleOn(),
             context = contextUri?.let(::knownContextName),
@@ -2125,6 +2150,14 @@ object SongPlayer {
             startMs = positionMs ?: 0L,
             continues = false,
         )
+    }
+
+    /** The download key of what a Spotify uri names: a track id, or "episode:<id>"; "" for anything local. */
+    private fun offlineTrackId(uri: String): String = when {
+        uri.startsWith(SPOTIFY_TRACK_PREFIX) -> trackIdOf(uri)
+        uri.startsWith("spotify:episode:") -> "episode:" + uri.removePrefix("spotify:episode:")
+        uri.startsWith("episode:") -> uri
+        else -> ""
     }
 
     /** The Spotify uri of what the local player plays: a song an extension streams or a download; null for a file of the device. */

@@ -321,6 +321,16 @@ private fun DownloadsPage(navController: NavController, open: (SettingsPage) -> 
     var ask by remember { mutableStateOf(false) }
     val size = android.text.format.Formatter.formatShortFileSize(ctx, com.music.spotui.data.offline.OfflineStore.totalBytes())
     ImmersivePage(title = stringResource(R.string.settings_section_downloads), onBack = back) {
+        immersiveGroup("offline") {
+            row {
+                ImmersiveSwitchRow(
+                    stringResource(R.string.settings_offline_mode_title),
+                    checked = com.music.spotui.data.offline.OfflineMode.enabled,
+                    onChecked = { com.music.spotui.data.offline.OfflineMode.set(it) },
+                    detail = stringResource(R.string.settings_offline_mode_detail),
+                )
+            }
+        }
         immersiveGroup("quality", footerRes = R.string.quality_download_detail) {
             row {
                 ImmersiveGroupRow(stringResource(R.string.quality_download_title),

@@ -21,6 +21,15 @@ class StreamErrors(private val maxSkips: Int = MAX_SKIPS) {
         else -> Step.STOP
     }
 
+    /**
+     * A file that cannot be played (a download, a Local File): retrying it can change nothing,
+     * so it is skipped at once — but still never through more than [maxSkips] in a row.
+     */
+    fun fileFailed(hasNext: Boolean): Step = when {
+        hasNext && skips < maxSkips -> { skips++; Step.SKIP }
+        else -> Step.STOP
+    }
+
     /** A song played: the failures before it are forgotten. */
     fun played() { skips = 0; retried.clear() }
 

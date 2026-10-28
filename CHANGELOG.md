@@ -2,6 +2,17 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
+## 2.1.2
+
+- **Downloads finish**: a retried chunk resumes from the bytes already on disk instead of asking for a range that starts past its own end, and a server that answers 416 no longer fails the song for good.
+- **Downloads keep going**: a worker that hits an unexpected error recovers and the queue continues; a song held by Offline Mode is put back safely when it is cancelled.
+- **Failed songs are retried**: the sync tries them again instead of leaving them failed until the list is downloaded again. Songs no source has stay out of automatic retries.
+- **Whole playlists download**: a long list still loading when its download starts is synced again at once, so every song is queued, not just the first page.
+- **Offline Mode plays on**: the queue continues with the downloaded songs after the one playing, resuming a download starts it where it was, and the mode survives list refreshes.
+- **Unplayable files are reported**: a damaged download or a lost encryption key now tells you and moves on to the next song instead of failing silently.
+- **Safer encryption**: a copy of the plain file is kept until the encrypted one is in place, and an interrupted encryption is recovered on the next start.
+- **Offline Mode in Immersive**: the switch is now in Settings, Downloads, in both looks.
+
 ## 2.1.0
 
 The first stable release since 2.0.1, with everything from the 2.0.2 betas (their notes are below) and more.

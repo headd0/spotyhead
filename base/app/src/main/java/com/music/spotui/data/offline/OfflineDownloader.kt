@@ -100,7 +100,25 @@ object OfflineDownloader {
         synchronized(this) {
             if (started) return
             started = true
-            repeat(WORKERS) { scope.launch { for (r in queue) work(r) } }
+            repeat(WORKERS) {
+                scope.launch {
+                    for (r in queue) {
+                        // A worker must never die: `started` stays true, so a lost worker is
+                        // never replaced and the whole queue would stop for good.
+                        try {
+                            work(r)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (t: Throwable) {
+                            Log.w(TAG, "${r.title}: the download worker recovered", t)
+                            runCatching {
+                                synchronized(pending) { pending.remove(r.trackId); savePending() }
+                                setStatus(r.trackId, classifyFailure(t))
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -266,9 +284,14 @@ object OfflineDownloader {
                 null
             } catch (e: CancellationException) {
                 dropTemps(r.trackId)
-                // Still queued (Offline Mode held the transfer): put it back so another worker takes it.
+                // Still queued (Offline Mode held the transfer): put it back so another worker
+                // takes it. The status is set from a fresh coroutine: this one is cancelled, and
+                // a suspending `setStatus` here would throw again before the re-queue, leaving
+                // the song pending with no worker and no way to resume.
                 if (synchronized(pending) { pending.containsKey(r.trackId) }) {
-                    setStatus(r.trackId, OfflineStatus.Waiting)
+                    scope.launch(Dispatchers.Main) {
+                        runCatching { OfflineStore.status[r.trackId] = OfflineStatus.Waiting }
+                    }
                     queue.trySend(r)
                 }
                 throw e
@@ -280,7 +303,9 @@ object OfflineDownloader {
                 classifyFailure(t)
             }
             synchronized(pending) { pending.remove(r.trackId); savePending() }
-            if (outcome != null) setStatus(r.trackId, outcome)
+            // The entry is out of the queue from here on: a failure to show the badge must
+            // never leave the song stuck as downloading.
+            if (outcome != null) runCatching { setStatus(r.trackId, outcome) }
         }
         running[r.trackId] = job
         job.join()
@@ -553,14 +578,19 @@ object OfflineDownloader {
         java.io.RandomAccessFile(out, "rw").use { output ->
             output.setLength(0)
             while (true) {
-                // A chunk is [start, end]; a retry resumes where the bytes stopped, never re-appends.
-                val end = if (total > 0) minOf(output.length() + chunk - 1, total - 1) else output.length() + chunk - 1
+                // A chunk is [position, end], both worked out for each attempt: a retry resumes
+                // where the bytes stopped, so a stale end would ask for a range that starts
+                // past its own end (the server answers 416 and the song failed for good).
                 var done = false
+                var failed: IOException? = null
                 var attempt = 0
                 yieldToPlayer()
                 while (true) {
                     attempt++
                     val position = output.length()
+                    // The size HEAD gave says the file is already complete.
+                    if (total > 0 && position >= total) { done = true; break }
+                    val end = if (total > 0) minOf(position + chunk - 1, total - 1) else position + chunk - 1
                     val conn = (URL(url).openConnection() as HttpURLConnection).apply {
                         connectTimeout = 30_000  // Increased from 20s to 30s
                         readTimeout = 90_000      // Increased from 60s to 90s for large chunks
@@ -571,8 +601,9 @@ object OfflineDownloader {
                     }
                     try {
                         val code = conn.responseCode
-                        // Asked past the end of a file whose size was unknown: it is complete.
-                        if (code == 416 && total <= 0 && position > 0) { done = true; break }
+                        // Asked past the end of a file whose size is unknown, or whose HEAD
+                        // was wrong: the bytes on disk are all there is.
+                        if (code == 416 && position > 0) { done = true; break }
                         if (code !in 200..299) throw IOException("stream HTTP $code")
                         val full = code != 206 // server ignored Range → the whole body, from byte 0
                         if (full) output.setLength(0)
@@ -589,12 +620,19 @@ object OfflineDownloader {
                                 got += n
                             }
                         }
-                        if (full) done = true
-                        // A short chunk with the size still unknown is the end of the stream.
-                        else if (total <= 0 && got < expected) done = true
+                        when {
+                            full -> done = true
+                            // The whole file is on disk (the size is known, and reached).
+                            total > 0 && output.length() >= total -> done = true
+                            // No size known: a chunk shorter than asked ends the stream.
+                            total <= 0 && got < expected -> done = true
+                            // A known size and an empty answer: the server gave nothing, but
+                            // the file is not complete: ask again rather than loop forever.
+                            got == 0L -> throw IOException("stream sent no bytes at $position of $total")
+                        }
                         break
                     } catch (e: IOException) {
-                        if (attempt >= 3) throw e
+                        if (attempt >= 3) { failed = e; break }
                         // Exponential backoff: 500ms, 1s, 2s
                         val backoffMs = 500L * (1 shl (attempt - 1))
                         Log.w(TAG, "chunk at ${output.length()} failed (attempt $attempt, backoff ${backoffMs}ms): ${e.message}")
@@ -603,6 +641,7 @@ object OfflineDownloader {
                         conn.disconnect()
                     }
                 }
+                failed?.let { throw it }
                 if (done) break
                 if (total in 1..output.length()) break
             }
