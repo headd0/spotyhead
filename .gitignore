@@ -1,0 +1,106 @@
+# Build files (NEVER push these)
+*.iml
+.gradle
+.kotlin/
+build/
+*/build/
+.gradle-home/
+gradle-home/
+.gradle/
+/.gradle/
+
+# Local development
+local.properties
+/local.properties
+
+# IDE
+/.idea
+.idea/
+*.swp
+*.swo
+*~
+*.iws
+*.ipr
+*.iml
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+.AppleDouble
+.LSOverride
+*.bak
+*.tmp
+
+# Gradle
+/gradle-home/
+.gradle/
+gradlew.bat.bak
+.gradle-user-home/
+
+# Build outputs (APK, bundles, etc)
+app/build/
+*/build/
+/build/
+*.apk
+*.aab
+*.aar
+build/
+outputs/
+
+# Captures and screenshots
+/captures
+/screenshots
+
+# Native build
+.externalNativeBuild
+.cxx/
+.cxx
+
+# Logs and reports
+*.log
+*.txt
+build.log
+build_output.txt
+lint-results.xml
+lint-results.html
+
+# Firebase & Services
+app/google-services.json
+google-services.json
+
+# Keystore & Security (NEVER push these!)
+*.jks
+*.keystore
+*.p12
+*.pem
+keystore/
+*.key
+*.crt
+
+# Cache files
+.cache/
+*.cache
+
+# Temp files
+*.tmp
+*.temp
+.tmp/
+temp/
+*.bak
+
+# Scripts
+scripts/
+
+# Android specific
+proguard-mapping.txt
+.android/
+lint-results/
+intermediates/
+
+# Kotlin
+.kotlin/
+
+# Test reports
+test-results/
+androidTest-results/
