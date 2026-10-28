@@ -23,4 +23,8 @@
     <string name="account_page_detail">Plan, privacy and devices, on spotify.com</string>
     <string name="player_source_downloaded">Downloaded</string>
     <string name="extension_change_write">Now also allowed to send to Spotify: %1$s</string>
+    
+    <!-- Offline Mode Settings -->
+    <string name="settings_offline_mode_title">Offline Mode</string>
+    <string name="settings_offline_mode_detail">Only play downloaded songs and local files. Blocks all streaming when enabled.</string>
 </resources>

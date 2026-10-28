@@ -179,6 +179,15 @@ fun SettingsScreen(navController: NavController) {
             }
             if (tab == 1) {
             Section(R.string.settings_section_downloads)
+            
+            // Offline Mode toggle
+            OptionRow(
+                label = stringResource(R.string.settings_offline_mode_title),
+                detail = stringResource(R.string.settings_offline_mode_detail),
+                checked = com.music.spotui.data.offline.OfflineMode.enabled,
+                onChecked = { com.music.spotui.data.offline.OfflineMode.set(it) },
+            )
+            
             DownloadQualityPicker()
             // Where downloads come from: the download-source extensions, in the order they are asked.
             if (com.music.spotui.extensions.Extensions.sources(app.myspoti.extensions.Action.DOWNLOAD_SOURCE).isNotEmpty())

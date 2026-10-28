@@ -37,7 +37,7 @@ android {
         versionName = version
         // GitHub "owner/repo" whose releases the app checks for updates; empty = off
         // (local builds). CI sets it to the repository it builds.
-        buildConfigField("String", "UPDATE_REPO", "\"${(findProperty("updateRepo") as String?) ?: System.getenv("MYSPOTI_UPDATE_REPO") ?: ""}\"")
+        buildConfigField("String", "UPDATE_REPO", "\"headd0/spotyhead\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a")
         }
