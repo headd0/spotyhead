@@ -119,13 +119,13 @@ object UpdateChecker {
         return Release(version, url, prefs.getString("notes", null).orEmpty(), prefs.getString("apk", null).orEmpty()).takeIf { isNewer(version, BuildConfig.VERSION_NAME) }
     }
 
-    /** The release's APK download link (the CI uploads one `myspoti-<version>.apk`). */
+    /** The release's APK download link (the CI uploads one `app-debug.apk`). */
     internal fun apkAsset(release: JSONObject): String {
         val assets = release.optJSONArray("assets") ?: return ""
         val all = (0 until assets.length()).map { assets.getJSONObject(it) }
         // This release's own APK first: a release carrying several APKs (both
         // channels) must not hand a phone the other channel's build.
-        val want = "myspoti-${release.optString("tag_name").removePrefix("v")}.apk"
+        val want = "app-debug.apk"
         return (all.firstOrNull { it.optString("name") == want }
             ?: all.firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) })
             ?.optString("browser_download_url").orEmpty()
