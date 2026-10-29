@@ -614,6 +614,25 @@ object Extensions {
         }
     }
 
+    /**
+     * The files [track] can be downloaded from in [quality], from **every** enabled download-source
+     * extension that has any, in priority order. Each entry is (extension id, extension name, its files).
+     * Used so a track missed by one source can still be fetched from another.
+     */
+    suspend fun downloadFilesAll(track: TrackInfo, quality: String): List<Triple<String, String, List<DownloadFile>>> {
+        if (!isReady) return emptyList()
+        val input = DownloadQuery.toJson(track, quality)
+        probeStale(Hook.DOWNLOAD_SOURCE)
+        val candidates = providing(Hook.DOWNLOAD_SOURCE)
+        if (candidates.isEmpty()) return emptyList()
+        return HookDispatch.allInOrder(candidates) { (id, rt) ->
+            callHook(id, rt, Hook.DOWNLOAD_SOURCE, input, DOWNLOAD_MS) { DownloadFile.parseList(it).takeIf { l -> l.isNotEmpty() } }
+        }.map { (c, files) ->
+            log(c.first, "download files for ${track.title}: ${files.joinToString { "${it.format}/${it.bitDepth ?: "-"}" }}")
+            did(Area.AUDIO, c.first, "Download of ${track.title} from ${c.second.manifest.name}")
+            Triple(c.first, c.second.manifest.name, files)
+        }
+    }
     /** Lyrics from the extensions (the best, ties to the higher priority), or null. */
     suspend fun lyrics(track: TrackInfo): Lyrics? {
         if (!isReady) return null

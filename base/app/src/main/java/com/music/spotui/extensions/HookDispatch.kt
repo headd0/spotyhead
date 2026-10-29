@@ -30,6 +30,11 @@ object HookDispatch {
         null
     }
 
+    /** Every non-null answer in [candidates]' order (waits for all). */
+    suspend fun <C, R : Any> allInOrder(candidates: List<C>, ask: suspend (C) -> R?): List<Pair<C, R>> = coroutineScope {
+        val asked = candidates.map { c -> c to async { answer { ask(c) } } }
+        asked.mapNotNull { (c, job) -> job.await()?.let { c to it } }
+    }
     /** The best answer by [rank] (higher is better), ties to the earlier candidate. Waits for all. */
     suspend fun <C, R : Any> bestInOrder(candidates: List<C>, rank: (R) -> Int, ask: suspend (C) -> R?): Pair<C, R>? = coroutineScope {
         val asked = candidates.map { c -> c to async { answer { ask(c) } } }

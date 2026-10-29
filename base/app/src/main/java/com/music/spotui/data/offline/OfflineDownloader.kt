@@ -421,39 +421,41 @@ object OfflineDownloader {
             .copy(isrc = meta.isrc)
         // Show "searching..." state while looking for the source
         setStatus(r.trackId, OfflineStatus.Downloading(-1f))
-        val (extensionId, extension, files) = com.music.spotui.extensions.Extensions.downloadFiles(track, queryQuality(quality))
-            ?: throw Unavailable("no download source has this song")
-        for (file in files) {
-            currentCoroutineContext().ensureActive()
-            setStatus(r.trackId, OfflineStatus.Downloading(-1f))
-            val label = listOfNotNull(file.provider ?: extension, file.bitDepth?.takeIf { file.lossless }?.let { "$it-bit" }).joinToString(" ")
-            val ok = try {
-                when {
-                    file.format == "dash-flac" -> runInterruptible(Dispatchers.IO) {
-                        DashFlacRemux.download("data:application/dash+xml;base64,${file.manifest}", out, file.headers)
-                    }
-                    else -> fetchWithProgress(r.trackId, file.url!!, out, file.headers)
-                } && out.length() >= 10_000
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.w(TAG, "${meta.title}: $label ${file.format}: ${e.message}")
-                false
+        val all = com.music.spotui.extensions.Extensions.downloadFilesAll(track, queryQuality(quality))
+        if (all.isEmpty()) throw Unavailable("no download source has this song")
+        for ((extensionId, extension, files) in all) {
+            for (file in files) {
+                currentCoroutineContext().ensureActive()
+                setStatus(r.trackId, OfflineStatus.Downloading(-1f))
+                val label = listOfNotNull(file.provider ?: extension, file.bitDepth?.takeIf { file.lossless }?.let { "$it-bit" }).joinToString(" ")
+                val ok = try {
+                    when {
+                        file.format == "dash-flac" -> runInterruptible(Dispatchers.IO) {
+                            DashFlacRemux.download("data:application/dash+xml;base64,${file.manifest}", out, file.headers)
+                        }
+                        else -> fetchWithProgress(r.trackId, file.url!!, out, file.headers)
+                    } && out.length() >= 10_000
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    Log.w(TAG, "${meta.title}: $label ${file.format}: ${e.message}")
+                    false
+                }
+                if (!ok) continue
+                setStatus(r.trackId, OfflineStatus.Verifying)
+                val refused = runCatching {
+                    if (file.lossless) checkFlacHeader(out, meta, file.bitDepth) else checkAudio(out, meta)
+                }.exceptionOrNull()
+                if (refused != null) { Log.i(TAG, "${meta.title}: $label: ${refused.message}"); continue }
+                if (!file.lossless) {
+                    Log.i(TAG, "${meta.title}: saved $label ${file.format}")
+                    return Fetched(label, file.isrcMatched, extensionId, lossy = file.format)
+                }
+                Log.i(TAG, "${meta.title}: saved FLAC from $label")
+                return Fetched(label, file.isrcMatched, extensionId)
             }
-            if (!ok) continue
-            setStatus(r.trackId, OfflineStatus.Verifying)
-            val refused = runCatching {
-                if (file.lossless) checkFlacHeader(out, meta, file.bitDepth) else checkAudio(out, meta)
-            }.exceptionOrNull()
-            if (refused != null) { Log.i(TAG, "${meta.title}: $label: ${refused.message}"); continue }
-            if (!file.lossless) {
-                Log.i(TAG, "${meta.title}: saved $label ${file.format}")
-                return Fetched(label, file.isrcMatched, extensionId, lossy = file.format)
-            }
-            Log.i(TAG, "${meta.title}: saved FLAC from $label")
-            return Fetched(label, file.isrcMatched, extensionId)
         }
-        throw Unavailable("none of the ${files.size} files from $extension could be used")
+        throw Unavailable("none of the files from any download source could be used")
     }
 
     /**
