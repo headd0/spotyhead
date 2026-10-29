@@ -2,7 +2,7 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
-## 2.1.3 (in progress)
+## 2.1.3
 
 - **Offline Mode detects the network**: it now turns itself on when Android reports no validated internet connection (and off again when it returns), in addition to the manual switch in Settings.
 - **Downloads are more robust**: a held transfer (Offline Mode / network loss) no longer kills its worker, so the queue keeps draining; cancelled jobs are cleaned up.
