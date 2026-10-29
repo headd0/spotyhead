@@ -489,7 +489,7 @@ object MusicVideoController {
                         }
                     }
                 }
-                val target = files ?: return@launch
+                val target = files
                 val full = refineLock.withLock { coroutineScope {
                     val reference = async(Dispatchers.Default) {
                         runInterruptible { AudioAlign.features(AudioAlign.decode(target.reference)) }

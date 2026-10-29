@@ -304,7 +304,11 @@ object OfflineDownloader {
                 return@launch
             } catch (e: Unavailable) {
                 Log.i(TAG, "${r.title}: ${e.message}")
-                OfflineStatus.Unavailable
+                when (e.message) {
+                    "no download source extension installed" -> OfflineStatus.Failed(app.myspoti.engine.R.string.downloads_need_source)
+                    "no download source has this song" -> OfflineStatus.Unavailable
+                    else -> OfflineStatus.Failed(app.myspoti.engine.R.string.download_error_corrupt)
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "${r.title} failed", t)
                 classifyFailure(t)
@@ -422,7 +426,14 @@ object OfflineDownloader {
         // Show "searching..." state while looking for the source
         setStatus(r.trackId, OfflineStatus.Downloading(-1f))
         val all = com.music.spotui.extensions.Extensions.downloadFilesAll(track, queryQuality(quality))
-        if (all.isEmpty()) throw Unavailable("no download source has this song")
+        if (all.isEmpty()) {
+            // Distinguish: no download source extensions at all vs extensions exist but don't have this song
+            if (!com.music.spotui.extensions.Extensions.hasDownloadSource()) {
+                throw Unavailable("no download source extension installed")
+            } else {
+                throw Unavailable("no download source has this song")
+            }
+        }
         for ((extensionId, extension, files) in all) {
             for (file in files) {
                 currentCoroutineContext().ensureActive()

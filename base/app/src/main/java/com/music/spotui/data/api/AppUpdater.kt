@@ -76,10 +76,11 @@ object AppUpdater {
         val file = File(dir, "app-debug.apk")
         http.newCall(Request.Builder().url(release.apkUrl).build()).execute().use { r ->
             if (!r.isSuccessful) throw java.io.IOException("HTTP ${r.code}")
-            val total = r.body.contentLength()
+            val body = r.body ?: throw java.io.IOException("empty body")
+            val total = body.contentLength()
             var done = 0L
             var shown = -1
-            r.body.byteStream().use { input ->
+            body.byteStream().use { input ->
                 file.outputStream().use { out ->
                     val buf = ByteArray(64 * 1024)
                     while (true) {

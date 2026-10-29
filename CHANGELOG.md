@@ -2,6 +2,13 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
+## 2.1.6
+
+- **Downloads explain missing sources**: when no download-source extension is installed, downloads now say so instead of reporting that the song is unavailable.
+- **Updates handle empty responses**: an update download with no response body now fails clearly instead of crashing.
+- **Music video matching**: improved alignment behavior when matching video audio to the song.
+- **More reliable source selection**: every available download source is tried before a song is marked unavailable.
+
 ## 2.1.3
 
 - **Offline Mode detects the network**: it now turns itself on when Android reports no validated internet connection (and off again when it returns), in addition to the manual switch in Settings.
