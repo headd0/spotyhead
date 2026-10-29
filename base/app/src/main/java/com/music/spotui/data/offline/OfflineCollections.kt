@@ -249,7 +249,7 @@ object OfflineCollections {
             file.parentFile?.mkdirs()
             val tmp = File(file.parentFile, file.name + ".tmp")
             tmp.writeText(text)
-            tmp.renameTo(file)
+            commitFile(tmp, file)
         }
     }
 

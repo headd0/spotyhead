@@ -2,6 +2,13 @@
 
 Each release on GitHub shows its section below. The app shows it too when it offers the update. Every detail: [docs/CHANGELOG-full.md](docs/CHANGELOG-full.md).
 
+## 2.1.3 (in progress)
+
+- **Offline Mode detects the network**: it now turns itself on when Android reports no validated internet connection (and off again when it returns), in addition to the manual switch in Settings.
+- **Downloads are more robust**: a held transfer (Offline Mode / network loss) no longer kills its worker, so the queue keeps draining; cancelled jobs are cleaned up.
+- **Stricter file checks**: a download whose audio cannot be read, or whose length does not match the song, is refused instead of being kept.
+- **Atomic index writes**: downloaded-list index writes replace the old file instead of failing when it exists.
+
 ## 2.1.2
 
 - **Downloads finish**: a retried chunk resumes from the bytes already on disk instead of asking for a range that starts past its own end, and a server that answers 416 no longer fails the song for good.

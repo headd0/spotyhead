@@ -283,18 +283,25 @@ object OfflineDownloader {
                 withContext(Dispatchers.Main) { requests.remove(r.trackId) }
                 null
             } catch (e: CancellationException) {
-                dropTemps(r.trackId)
                 // Still queued (Offline Mode held the transfer): put it back so another worker
                 // takes it. The status is set from a fresh coroutine: this one is cancelled, and
                 // a suspending `setStatus` here would throw again before the re-queue, leaving
                 // the song pending with no worker and no way to resume.
-                if (synchronized(pending) { pending.containsKey(r.trackId) }) {
+                val held = synchronized(pending) { pending.containsKey(r.trackId) }
+                if (held) {
                     scope.launch(Dispatchers.Main) {
                         runCatching { OfflineStore.status[r.trackId] = OfflineStatus.Waiting }
                     }
                     queue.trySend(r)
                 }
-                throw e
+                // Do not remove from pending and do not touch the index: a held transfer
+                // resumes later. A real cancel() already removed it from pending.
+                if (held) return@launch
+                // Cancelled by the user: clean up partial files and forget.
+                dropTemps(r.trackId)
+                synchronized(pending) { pending.remove(r.trackId); savePending() }
+                scope.launch(Dispatchers.Main) { OfflineStore.status.remove(r.trackId); requests.remove(r.trackId) }
+                return@launch
             } catch (e: Unavailable) {
                 Log.i(TAG, "${r.title}: ${e.message}")
                 OfflineStatus.Unavailable
@@ -308,7 +315,12 @@ object OfflineDownloader {
             if (outcome != null) runCatching { setStatus(r.trackId, outcome) }
         }
         running[r.trackId] = job
-        job.join()
+        try {
+            job.join()
+        } catch (e: CancellationException) {
+            // The job was cancelled (holdTransfers / cancel): the job's own handler dealt with
+            // re-queueing. Keep the worker alive.
+        }
         running.remove(r.trackId, job)
     }
 
@@ -457,56 +469,28 @@ object OfflineDownloader {
                 flacDurationSec(head)
             }
         }.getOrNull() ?: throw Unavailable("the source did not send a FLAC file")
-        
-        // Check length with more tolerance for FLAC files
-        try {
-            checkLength(seconds.toLong(), meta)
-        } catch (e: Unavailable) {
-            // FLAC files often have extended outros or live versions - be more lenient
-            val diff = kotlin.math.abs(seconds - (meta.durationMs / 1000))
-            if (diff <= 30) {
-                Log.w(TAG, "${meta.title}: FLAC length mismatch ${seconds}s vs ${meta.durationMs/1000}s but within tolerance, allowing")
-            } else {
-                throw e  // Only fail if difference is extreme
-            }
-        }
-        
+
+        checkLength(seconds.toLong(), meta)
+
         Log.d(TAG, "${meta.title}: FLAC ${seconds}s header check, labelled ${bitDepth ?: "-"}-bit")
     }
 
     /** An M4A / MP3 as served: the phone's own extractor must find an audio track of the song's length. */
     private fun checkAudio(file: File, meta: Meta) {
         val extractor = android.media.MediaExtractor()
-        val seconds = try {
+        try {
             extractor.setDataSource(file.path)
             val format = (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
                 .firstOrNull { it.getString(android.media.MediaFormat.KEY_MIME)?.startsWith("audio/") == true }
                 ?: throw Unavailable("the source did not send an audio file")
-            if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) format.getLong(android.media.MediaFormat.KEY_DURATION) / 1_000_000 else -1L
-        } catch (e: IOException) {
-            // Some files have format issues but are still playable - be more lenient
-            Log.w(TAG, "${meta.title}: Could not extract metadata: ${e.message}, allowing file")
-            return  // Allow file even if we can't verify duration
-        } catch (e: Exception) {
-            // MediaExtractor can throw various exceptions - log and allow
-            Log.w(TAG, "${meta.title}: MediaExtractor error: ${e.message}, allowing file")
-            return  // Allow file even if verification failed
+            val seconds = if (format.containsKey(android.media.MediaFormat.KEY_DURATION)) format.getLong(android.media.MediaFormat.KEY_DURATION) / 1_000_000 else -1L
+            if (seconds > 0) checkLength(seconds, meta)
+        } catch (e: Unavailable) {
+            throw e
+        } catch (e: Throwable) {
+            throw Unavailable("the source did not send an audio file")
         } finally {
             extractor.release()
-        }
-        // Only check length if we successfully extracted duration
-        if (seconds > 0) {
-            try {
-                checkLength(seconds, meta)
-            } catch (e: Unavailable) {
-                // Length mismatch - log but allow if within reasonable bounds (30s tolerance)
-                val diff = kotlin.math.abs(seconds - (meta.durationMs / 1000))
-                if (diff <= 30) {
-                    Log.w(TAG, "${meta.title}: Length mismatch ${seconds}s vs ${meta.durationMs/1000}s but within tolerance, allowing")
-                } else {
-                    throw e  // Only fail if difference is extreme
-                }
-            }
         }
     }
 
