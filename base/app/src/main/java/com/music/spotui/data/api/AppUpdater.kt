@@ -136,8 +136,16 @@ object AppUpdater {
                         else intent.getParcelableExtra(Intent.EXTRA_INTENT)
                     confirm?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
                 }
-                // On success this process is replaced by the new version.
-                PackageInstaller.STATUS_SUCCESS -> _state.value = State.Idle
+                PackageInstaller.STATUS_SUCCESS -> {
+                    // The new version replaces this process: record this release as handled so the
+                    // same update is not offered again (the version string may still match what was
+                    // stored before the install took effect).
+                    val prefs = context.getSharedPreferences("updates", Context.MODE_PRIVATE)
+                    prefs.getString("version", null)?.let { v ->
+                        prefs.edit().putString("dismissed", v).apply()
+                    }
+                    _state.value = State.Idle
+                }
                 PackageInstaller.STATUS_FAILURE_ABORTED -> _state.value = State.Idle
                 else -> _state.value = State.Failed(
                     intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE) ?: "install status $status",
